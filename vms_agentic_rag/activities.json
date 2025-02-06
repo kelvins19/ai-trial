@@ -1,0 +1,23 @@
+[
+    {
+        "id": 1,
+        "name": "Beach Cleanup",
+        "start_date": "2023-10-01T09:00:00",
+        "end_date": "2023-10-01T12:00:00",
+        "description": "Cleaning up the local beach."
+    },
+    {
+        "id": 2,
+        "name": "Tree Planting",
+        "start_date": "2023-10-05T10:00:00",
+        "end_date": "2023-10-05T14:00:00",
+        "description": "Planting trees in the community park."
+    },
+    {
+        "id": 3,
+        "name": "Food Drive",
+        "start_date": "2023-10-10T08:00:00",
+        "end_date": "2023-10-10T16:00:00",
+        "description": "Collecting and distributing food to those in need."
+    }
+]

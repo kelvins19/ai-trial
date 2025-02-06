@@ -1,0 +1,30 @@
+[
+  {
+    "id": 1,
+    "volunteer_id": 1,
+    "activity_id": 1,
+    "status": "cancelled",
+    "attended": true
+  },
+  {
+    "id": 2,
+    "volunteer_id": 2,
+    "activity_id": 2,
+    "status": "confirmed",
+    "attended": false
+  },
+  {
+    "id": 3,
+    "volunteer_id": 3,
+    "activity_id": 3,
+    "status": "confirmed",
+    "attended": true
+  },
+  {
+    "id": 4,
+    "volunteer_id": 1,
+    "activity_id": 3,
+    "status": "pending",
+    "attended": false
+  }
+]
