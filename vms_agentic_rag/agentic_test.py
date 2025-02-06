@@ -18,8 +18,8 @@ async def main():
     # prompt = """get list activities"""
     # prompt = """get list of activities to cancel"""
     # prompt = """cancel activity 2"""
-    prompt = ""
-    prompt = "Cancel activity 1"
+    # prompt = "3"
+    prompt = "Cancel no 2"
     response = await chatbot.get_response(input_prompt=prompt, phone_number="1234567890")
     
     # Print the response

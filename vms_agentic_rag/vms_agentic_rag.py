@@ -43,9 +43,10 @@ class VMSAgenticRag:
         we can retrieve the message history based on the user session.
         Do not return the session id, only the summarize details.
 
-        If the prompt is like this: Cancel activity {{activity.ID}}, return the response in a json only like this:
+        If the prompt is like this: Cancel no {{the listed number}}, return the response in a json only like this:
         {{
             "activity_id": activity.ID,
+            "volunteer_activity_id": volunteer_activity_id,
             "action": "cancel_activity",
             "phone_number": Session ID
         }}
@@ -73,10 +74,10 @@ class VMSAgenticRag:
             print(f"Phone number: {phone_number}")
 
             try:
-                print("Opening activities.json")
+                # print("Opening activities.json")
                 with open('activities.json', 'r') as file:
                     activities_data = json.load(file)
-                print("Loaded activities.json")
+                # print("Loaded activities.json")
 
                 return f"List of activities {json.dumps(activities_data, indent=2)}" 
             except Exception as e:
@@ -89,23 +90,23 @@ class VMSAgenticRag:
             phone_number = ctx.deps.phone_number
             print(f"Phone number: {phone_number}")
             try:
-                print("Opening volunteers.json")
+                # print("Opening volunteers.json")
                 with open('volunteers.json', 'r') as file:
                     volunteers_data = json.load(file)
-                print("Loaded volunteers.json")
+                # print("Loaded volunteers.json")
                 
-                print("Opening volunteer_activities.json")
+                # print("Opening volunteer_activities.json")
                 with open('volunteer_activities.json', 'r') as file:
                     volunteer_activities_data = json.load(file)
-                print("Loaded volunteer_activities.json")
+                # print("Loaded volunteer_activities.json")
                 
-                print("Opening activities.json")
+                # print("Opening activities.json")
                 with open('activities.json', 'r') as file:
                     activities_data = json.load(file)
-                print("Loaded activities.json")
+                # print("Loaded activities.json")
                 
                 # Find the volunteer by phone number
-                print("Searching for volunteer")
+                # print("Searching for volunteer")
                 volunteer = next((v for v in volunteers_data if v['phone_number'] == phone_number), None)
                 print(f"Volunteer: {volunteer}")
                 
@@ -115,7 +116,7 @@ class VMSAgenticRag:
                 volunteer_id = volunteer['id']
                 print(f"Volunteer ID: {volunteer_id}")
                 volunteer_activities = [activity for activity in volunteer_activities_data if activity['volunteer_id'] == volunteer_id]
-                print(f"Volunteer activities: {volunteer_activities}")
+                # print(f"Volunteer activities: {volunteer_activities}")
                 
                 if not volunteer_activities:
                     return "No activities found for this volunteer."
@@ -126,10 +127,14 @@ class VMSAgenticRag:
                     activity_id = volunteer_activity['activity_id']
                     activity_details = next((a for a in activities_data if a['id'] == activity_id), None)
                     if activity_details:
-                        detailed_activities.append({
+                        detailed_activity = {
+                            "volunteer_activity_id": volunteer_activity['id'],  # Use the unique id from volunteer_activities
                             **volunteer_activity,
                             **activity_details
-                        })
+                        }
+                        # Remove the conflicting id from activity_details
+                        detailed_activity.pop('id', None)
+                        detailed_activities.append(detailed_activity)
                 
                 return json.dumps(detailed_activities, indent=2)
             except Exception as e:
@@ -143,7 +148,18 @@ class VMSAgenticRag:
             phone_number = ctx.deps.phone_number
             print(f"Phone number: {phone_number}")
 
-            return f"Which activity would you like to cancel? {get_my_schedule(ctx)} Reply like this to cancel your activity: **Cancel activity {{activity.ID}}** e.g. Cancel activity 1" 
+            activities = get_my_schedule(ctx)
+            # print(f"Activity details: {activities}")
+
+            prompt = f"""
+                Which activity would you like to cancel? 
+
+                {activities} 
+
+                Reply like this to cancel your activity: **Cancel no {{the listed number}}** e.g. Cancel no 1
+                """
+
+            return prompt
         
         @self.agent.tool
         def get_action_menu(ctx: RunContext[str]) -> str:
@@ -169,7 +185,7 @@ class VMSAgenticRag:
                 print(f"Calling OpenRouter API with model: {self.model_name}")
                 print(f"Using base URL: {self.base_url}")
 
-                print(f"Prompt: {deps.prompt}")
+                print(f"User prompt: {deps.prompt}")
                 self.timer.start()  # Start timer
                 result = await self.agent.run(user_prompt=deps.prompt, deps=deps)
                 self.timer.stop()  # Stop timer
@@ -262,10 +278,9 @@ class VMSAgenticRag:
         response = await self._call_openrouter_batch(vmsDeps)
         reply = response
         
-        # Modify here if reply is a json
         try:
-
             reply_json = json.loads(reply)
+            print(f"Reply JSON: {reply_json}")
             if isinstance(reply_json, dict) and "activity_id" in reply_json:
                 action = reply_json["action"]
                 activity_id = reply_json["activity_id"]
@@ -277,5 +292,4 @@ class VMSAgenticRag:
                 return reply_json["error"]
         except json.JSONDecodeError:
             pass
-
         return reply
