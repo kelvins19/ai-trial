@@ -24,7 +24,7 @@
     "id": 4,
     "volunteer_id": 1,
     "activity_id": 3,
-    "status": "pending",
+    "status": "cancelled",
     "attended": false
   }
 ]

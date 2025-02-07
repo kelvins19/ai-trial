@@ -43,15 +43,65 @@ class VMSAgenticRag:
         we can retrieve the message history based on the user session.
         Do not return the session id, only the summarize details.
 
-        If the prompt is like this: Cancel no {{the listed number}}, return the response in a json only like this:
+        When the user prompt is the list of activities details, please remember the inputted json details,
+        as well in which number in the list that is summarized coresponds to. 
+        For example 
+        the json details like this:
+        [
+            {
+                "volunteer_activity_id": 1,
+                "volunteer_id": 1,
+                "activity_id": 1,
+                "status": "cancelled",
+                "attended": true,
+                "name": "Beach Cleanup",
+                "start_date": "2023-10-01T09:00:00",
+                "end_date": "2023-10-01T12:00:00",
+                "description": "Cleaning up the local beach."
+            },
+            {
+                "volunteer_activity_id": 4,
+                "volunteer_id": 1,
+                "activity_id": 3,
+                "status": "pending",
+                "attended": false,
+                "name": "Food Drive",
+                "start_date": "2023-10-10T08:00:00",
+                "end_date": "2023-10-10T16:00:00",
+                "description": "Collecting and distributing food to those in need."
+            }
+        ]
+        
+        the summarized list is like this:
+        {{list_number}}. **Beach Cleanup**
+        - **Volunteer Activity ID**: 1
+        - **Activity ID**: 1
+        - **Status**: Cancelled
+        - **Start Date**: October 1, 2023, 09:00 AM
+        - **End Date**: October 1, 2023, 12:00 PM
+        - **Description**: Cleaning up the local beach.
+
+        {{list_number}}. **Food Drive**
+        - **Volunteer Activity ID**: 4
+        - **Activity ID**: 3
+        - **Status**: Pending
+        - **Start Date**: October 10, 2023, 08:00 AM
+        - **End Date**: October 10, 2023, 04:00 PM
+        - **Description**: Collecting and distributing food to those in need.
+
+        if the prompt is Cancel no 2, then it means the Food Drive activity with volunteer_activity_id = 4 is the one need to be cancelled.
+
+        So later if the prompt is like this: Cancel no {{list_number}}, 
+        you can retrieve the detail based on the number that corespond to the list details before.
+        And return the response in JSON only like this:
         {{
             "activity_id": activity.ID,
             "volunteer_activity_id": volunteer_activity_id,
             "action": "cancel_activity",
             "phone_number": Session ID
         }}
-        Make sure to check if the activity.ID is exist within the list of activities in previous session, 
-        If not exist, return appropriate error response.
+        No need to consider the current status of the activity.
+        The returned response should be only the json.
 
         If the user inputs a number only:
         1 - Execute get_list_activities tool
@@ -123,11 +173,14 @@ class VMSAgenticRag:
                 
                 # Get detailed activity data
                 detailed_activities = []
+                i = 0
                 for volunteer_activity in volunteer_activities:
                     activity_id = volunteer_activity['activity_id']
                     activity_details = next((a for a in activities_data if a['id'] == activity_id), None)
                     if activity_details:
+                        i += 1
                         detailed_activity = {
+                            "list_number": i,
                             "volunteer_activity_id": volunteer_activity['id'],  # Use the unique id from volunteer_activities
                             **volunteer_activity,
                             **activity_details
@@ -136,6 +189,8 @@ class VMSAgenticRag:
                         detailed_activity.pop('id', None)
                         detailed_activities.append(detailed_activity)
                 
+                print(json.dumps(detailed_activities, indent=2))
+
                 return json.dumps(detailed_activities, indent=2)
             except Exception as e:
                 print(f"Exception: {str(e)}")
@@ -156,7 +211,9 @@ class VMSAgenticRag:
 
                 {activities} 
 
-                Reply like this to cancel your activity: **Cancel no {{the listed number}}** e.g. Cancel no 1
+                Reply like this to cancel your activity: **Cancel no {{list_number}}** e.g. Cancel no 1.
+
+                Make sure to return the volunteer_activity_id and list_number
                 """
 
             return prompt
@@ -190,6 +247,12 @@ class VMSAgenticRag:
                 result = await self.agent.run(user_prompt=deps.prompt, deps=deps)
                 self.timer.stop()  # Stop timer
 
+
+                # Print debug information
+                # print("History: \n")
+                # print(result.all_messages())
+                # print("=============")
+
                 if result is None:
                     raise Exception("API returned no result")
 
@@ -206,7 +269,7 @@ class VMSAgenticRag:
                 response = result.data
 
                 # Log the response
-                # print(f"API Response: {response}")
+                print(f"API Response: {response}")
 
                 if response.endswith("```}"):
                     response = response.replace("```}", "").strip()
@@ -228,7 +291,7 @@ class VMSAgenticRag:
                 else:
                     raise Exception(f"API Error: {str(e)}")
 
-    def _cancel_activity(self, phone_number: str, activity_id: int) -> str:
+    def _cancel_activity(self, phone_number: str, volunteer_activity_id: int) -> str:
         try:
             with open('volunteers.json', 'r') as file:
                 volunteers_data = json.load(file)
@@ -246,17 +309,17 @@ class VMSAgenticRag:
             
             # Find the volunteer activity and change its status to "cancelled"
             for activity in volunteer_activities_data:
-                if activity['activity_id'] == activity_id and activity['volunteer_id'] == volunteer_id:
+                if activity['id'] == volunteer_activity_id and activity['volunteer_id'] == volunteer_id:
                     activity['status'] = "cancelled"
                     break
             else:
-                return json.dumps({"error": f"Activity ID {activity_id} does not exist in your list of activities to cancel."})
+                return json.dumps({"error": f"Volunteer Activity ID {volunteer_activity_id} does not exist in your list of activities to cancel."})
             
             # Save the updated volunteer_activities.json
             with open('volunteer_activities.json', 'w') as file:
                 json.dump(volunteer_activities_data, file, indent=2)
             
-            return f"Activity {activity_id} is successfully cancelled"
+            return f"Volunteer Activity {volunteer_activity_id} is successfully cancelled"
         except Exception as e:
             return f"Error: {str(e)}"
 
@@ -281,12 +344,12 @@ class VMSAgenticRag:
         try:
             reply_json = json.loads(reply)
             print(f"Reply JSON: {reply_json}")
-            if isinstance(reply_json, dict) and "activity_id" in reply_json:
+            if isinstance(reply_json, dict) and "volunteer_activity_id" in reply_json:
                 action = reply_json["action"]
-                activity_id = reply_json["activity_id"]
+                volunteer_activity_id = reply_json["volunteer_activity_id"]
 
                 if action == "cancel_activity":
-                    return self._cancel_activity(phone_number, activity_id)
+                    return self._cancel_activity(phone_number, volunteer_activity_id)
 
             elif isinstance(reply_json, dict) and "error" in reply_json:
                 return reply_json["error"]
