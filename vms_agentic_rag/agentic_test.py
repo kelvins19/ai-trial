@@ -17,9 +17,8 @@ async def main():
     # prompt = """i want to see my schedule"""
     # prompt = """get list activities"""
     # prompt = """get list of activities to cancel"""
-    # prompt = """cancel activity 2"""
     prompt = "3"
-    prompt = "Cancel no 2"
+    prompt = "Cancel no 1"
     response = await chatbot.get_response(input_prompt=prompt, phone_number="1234567890")
     
     # Print the response

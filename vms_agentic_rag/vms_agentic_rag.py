@@ -33,22 +33,21 @@ class VMSAgenticRag:
             base_url=self.base_url,
         )
 
-        system_prompt = "You are a support chatbot for volunteer management system."
+        system_prompt = "You are a support chatbot for a volunteer management system."
         if prompt != "": 
             system_prompt = prompt
 
-        system_prompt += """Where user are going to send the datas and 
-        you have to summarize the detail in user friendly format, that can be easily understood by users.
-        Store the session for 1 hour, so that user can continue the session later and 
-        we can retrieve the message history based on the user session.
-        Do not return the session id, only the summarize details.
+        system_prompt += """
+        Users will send data, and you need to summarize the details in a user-friendly format that can be easily understood by users.
+        Store the session for 1 hour so that users can continue the session later and we can retrieve the message history based on the user session.
+        Do not return the session ID, only the summarized details.
 
-        When the user prompt is the list of activities details, please remember the inputted json details,
-        as well in which number in the list that is summarized coresponds to. 
-        For example 
-        the json details like this:
+        When the user prompt is the list of activity details, please remember the inputted JSON details,
+        as well as which number in the list corresponds to the summarized details.
+        For example, the JSON details might look like this:
         [
             {
+                "list_number": 1,
                 "volunteer_activity_id": 1,
                 "volunteer_id": 1,
                 "activity_id": 1,
@@ -60,6 +59,7 @@ class VMSAgenticRag:
                 "description": "Cleaning up the local beach."
             },
             {
+                "list_number": 2,
                 "volunteer_activity_id": 4,
                 "volunteer_id": 1,
                 "activity_id": 3,
@@ -72,7 +72,7 @@ class VMSAgenticRag:
             }
         ]
         
-        the summarized list is like this:
+        The summarized list is like this:
         {{list_number}}. **Beach Cleanup**
         - **Volunteer Activity ID**: 1
         - **Activity ID**: 1
@@ -89,10 +89,10 @@ class VMSAgenticRag:
         - **End Date**: October 10, 2023, 04:00 PM
         - **Description**: Collecting and distributing food to those in need.
 
-        if the prompt is Cancel no 2, then it means the Food Drive activity with volunteer_activity_id = 4 is the one need to be cancelled.
+        If the prompt is "Cancel no 2", it means the Food Drive activity with volunteer_activity_id = 4 needs to be cancelled.
 
-        So later if the prompt is like this: Cancel no {{list_number}}, 
-        you can retrieve the detail based on the number that corespond to the list details before.
+        So later, if the prompt is like this: "Cancel no {{list_number}}", 
+        you can retrieve the detail based on the number that corresponds to the list details before.
         And return the response in JSON only like this:
         {{
             "activity_id": activity.ID,
@@ -101,13 +101,13 @@ class VMSAgenticRag:
             "phone_number": Session ID
         }}
         No need to consider the current status of the activity.
-        The returned response should be only the json.
+        The returned response should be only the JSON.
 
         If the user inputs a number only:
         1 - Execute get_list_activities tool
         2 - Execute get_my_schedule tool
         3 - Execute get_list_activities_to_cancel tool
-        Other Number - Execute get_action_menu and also return message that states that input is not supported.
+        Other Number - Execute get_action_menu and also return a message that states that the input is not supported.
 
         If the user inputs a prompt that is not recognized at all, execute get_action_menu.
         """
@@ -228,7 +228,10 @@ class VMSAgenticRag:
             Here are the list of actions you can perform:
             1. Get list of activities
             2. Get my schedule
-            3. Get list of activities to cancel"""
+            3. Cancel activity
+
+            Reply with the number of menu list, e.g. 1
+            """
 
             return prompt
 
