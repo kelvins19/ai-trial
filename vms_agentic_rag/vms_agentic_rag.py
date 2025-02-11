@@ -10,6 +10,7 @@ import os
 from dotenv import load_dotenv
 from memory_profiler import profile
 from collections import defaultdict
+from pydantic_ai.messages import ModelMessagesTypeAdapter
 
 load_dotenv()
 nest_asyncio.apply()
@@ -247,6 +248,11 @@ class VMSAgenticRag:
 
         return prompt
 
+    def get_chat_history(self, phone_number: str) -> str:
+        if phone_number in self.sessions:
+            return json.dumps(self.sessions[phone_number]['chat_history'], indent=2)
+        return None
+
     async def _call_openrouter_batch(self, deps: Deps) -> str:
         max_retries = 3
         retry_delay = 1  # Initial delay in seconds
@@ -260,14 +266,13 @@ class VMSAgenticRag:
                 print(f"User prompt: {deps.prompt}")
                 self.timer.start()  # Start timer
                 agent = self.get_agent(deps.phone_number)
-                result = await agent.run(user_prompt=deps.prompt, deps=deps)
+                
+                # Retrieve existing message history if available
+                message_history_json = self.sessions[deps.phone_number].get('chat_history', [])
+                message_history = ModelMessagesTypeAdapter.validate_json(json.dumps(message_history_json))
+
+                result = await agent.run(user_prompt=deps.prompt, deps=deps, message_history=message_history)
                 self.timer.stop()  # Stop timer
-
-
-                # Print debug information
-                print("History: \n")
-                print(result.all_messages())
-                print("=============")
 
                 if result is None:
                     raise Exception("API returned no result")
@@ -297,7 +302,7 @@ class VMSAgenticRag:
                     response = response.replace("json", "").strip()
 
                 # Store the chat history in the session
-                self.sessions[deps.phone_number]['chat_history'] = result.all_messages()
+                self.sessions[deps.phone_number]['chat_history'] = json.loads(result.all_messages_json().decode('utf-8'))
 
                 return response
 

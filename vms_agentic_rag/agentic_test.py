@@ -23,6 +23,10 @@ async def main():
     
     # Print the response
     print("Chatbot response:", response)
+    
+    # Print the chat history
+    chat_history = chatbot.get_chat_history(phone_number="1234567890")
+    print("Chat history:", chat_history)
 
 # Run the test
 if __name__ == "__main__":

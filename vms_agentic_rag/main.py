@@ -28,6 +28,12 @@ async def get_response(request_body: RequestBody):
             input_prompt=request_body.input_prompt,
             phone_number=request_body.phone_number
         )
+
+        chat_history = chatbot.get_chat_history(phone_number=request_body.phone_number)
+        print("================================================================")
+        print("Chat history:", chat_history)
+        print("================================================================")
+
         return {"response": response}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
