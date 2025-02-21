@@ -2,14 +2,14 @@ import asyncio
 import nest_asyncio
 nest_asyncio.apply()
 
-from crawl4ai import AsyncWebCrawler, CacheMode, BrowserConfig, CrawlerRunConfig
+from crawl4ai import AsyncWebCrawler, CacheMode, BrowserConfig, CrawlerRunConfig, CacheMode
 
 # Ensure Playwright browsers are installed
 import subprocess
 subprocess.run(["playwright", "install"], check=True)
 
 url = "http://www.ditekjaya.co.id"
-url = "http://www.ditekjaya.co.id/produk-kami/chromatography-systems/gas-chromatographs/tracera/"
+url = "http://www.ditekjaya.co.id/produk-kami/chromatography-systems/gas-chromatographs/tracera"
 
 async def simple_crawl():
     crawler_run_config = CrawlerRunConfig( cache_mode=CacheMode.BYPASS)
@@ -86,3 +86,75 @@ async def media_handling():
             print(f"Image URL: {img['src']}, Alt: {img['alt']}, Score: {img['score']}")
 
 # asyncio.run(media_handling())
+
+
+async def ai_content_search():
+    async with AsyncWebCrawler() as crawler:
+        config = CrawlerRunConfig(
+            cache_mode=CacheMode.ENABLED,
+            ai_content_search=LLMExtractionStrategy(
+                model=model_name,
+                base_url=base_url,
+                api_key=api_key,
+                search_query="how many products does this website have?"
+            )
+        )
+        result = await crawler.arun(
+            url=url,
+            config=config,
+        )
+        print(f"AI Search Results: {result.ai_content_search_results}")
+
+# asyncio.run(ai_content_search())
+
+async def llm_extract_products():
+    instructions = """
+                Extract all available products from the website, including:
+                - Product names
+                - Description details
+                - Images
+                Format the output as clean markdown with proper sections for each product.
+            """
+    
+    instructions = """
+            Convert all contents to english. Then
+            Extract all representative offices of ditekjaya, including all of its details.
+            Format the output as clean markdown with proper sections for each office.
+        """
+    browser_config = BrowserConfig(
+        headless=True,
+        verbose=True
+    )
+    run_config = CrawlerRunConfig(cache_mode=CacheMode.ENABLED)
+
+
+    async with AsyncWebCrawler(config=browser_config) as crawler:
+        result = await crawler.arun(url, config=run_config)
+        html = result.cleaned_html
+
+        filter = LLMContentFilter(
+            provider=model_name,
+            api_token=api_key,
+            api_base=base_url,
+            chunk_token_threshold=2 ** 12 * 2, # 2048 * 2
+            instruction=instructions,
+            verbose=True
+        )
+
+        #  Apply filtering
+        filtered_content = filter.filter_content(html, ignore_cache = True)
+        
+        # Show results
+        print("\nFiltered Content Length:", len(filtered_content))
+        print("\nFirst 500 chars of filtered content:")
+        if filtered_content:
+            print(filtered_content[0][:500])
+        
+        # Save on disc the markdown version
+        with open("filtered_content.md", "w", encoding="utf-8") as f:
+            f.write("\n".join(filtered_content))
+        
+        # Show token usage
+        filter.show_usage()
+
+# asyncio.run(llm_extract_products())

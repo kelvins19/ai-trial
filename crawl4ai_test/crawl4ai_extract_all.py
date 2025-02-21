@@ -67,11 +67,12 @@ class SimpleWebsiteScraper:
         while queue:
             current_url, current_depth = queue.popleft()
             
+            current_url = current_url + "/"
+
             if current_url in visited or current_depth > max_depth:
                 continue
             
             visited.add(current_url)
-
             
             result = await self.crawler.arun(url=current_url, config=config)
             
