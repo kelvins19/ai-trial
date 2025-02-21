@@ -3,7 +3,7 @@
     "id": 1,
     "volunteer_id": 1,
     "activity_id": 1,
-    "status": "cancelled",
+    "status": "confirmed",
     "attended": true
   },
   {
@@ -24,7 +24,7 @@
     "id": 4,
     "volunteer_id": 1,
     "activity_id": 3,
-    "status": "cancelled",
+    "status": "pending",
     "attended": false
   }
 ]
