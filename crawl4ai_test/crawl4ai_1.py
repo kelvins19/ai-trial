@@ -9,7 +9,15 @@ import subprocess
 subprocess.run(["playwright", "install"], check=True)
 
 url = "http://www.ditekjaya.co.id"
-url = "http://www.ditekjaya.co.id/produk-kami/chromatography-systems/gas-chromatographs/tracera"
+url = "http://www.ditekjaya.co.id/produk-kami/chromatography-systems/gas-chromatographs/tracera/"
+
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+model_name=os.getenv("OPENAI_MODEL_NAME")
+api_key=os.getenv("OPENAI_API_KEY")
+base_url=os.getenv("OPENAI_BASE_URL")
 
 async def simple_crawl():
     crawler_run_config = CrawlerRunConfig( cache_mode=CacheMode.BYPASS)
@@ -46,6 +54,7 @@ async def clean_content():
         fit_markdown_length = len(result.markdown_v2.fit_markdown)
         print(f"Full Markdown Length: {full_markdown_length}")
         print(f"Fit Markdown Length: {fit_markdown_length}")
+        print(f"Scrapped Content for URL {url}")
         print(result.markdown_v2.fit_markdown)
 
 asyncio.run(clean_content())

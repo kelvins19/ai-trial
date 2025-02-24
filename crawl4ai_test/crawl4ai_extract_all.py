@@ -7,8 +7,9 @@ from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode
 from urllib.parse import urljoin, urlparse, urlunparse
 from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
+from db.pinecone_db import store_embeddings_in_pinecone, search_pinecone
 
-class SimpleWebsiteScraper:
+class WebScraper:
     def __init__(self, crawler: AsyncWebCrawler):
         self.crawler = crawler
         self.base_url = None
@@ -47,7 +48,7 @@ class SimpleWebsiteScraper:
         return urlunparse(parsed_joined)
 
     async def scrape(self, start_url: str, max_depth: int) -> Dict[str, CrawlResult]:
-        self.base_url = self.normalize_url(start_url)
+        self.base_url = start_url
         results: Dict[str, CrawlResult] = {}
         queue: deque = deque([(self.base_url, 0)])
         visited: Set[str] = set()
@@ -66,9 +67,6 @@ class SimpleWebsiteScraper:
 
         while queue:
             current_url, current_depth = queue.popleft()
-            
-            current_url = current_url + "/"
-
             if current_url in visited or current_depth > max_depth:
                 continue
             
@@ -83,9 +81,8 @@ class SimpleWebsiteScraper:
                     internal_links = result.links.get('internal', [])
                     for link in internal_links:
                         full_url = self.join_url(current_url, link['href'])
-                        normalized_url = self.normalize_url(full_url)
-                        if self.is_valid_internal_link(normalized_url) and normalized_url not in visited:
-                            queue.append((normalized_url, current_depth + 1))
+                        if self.is_valid_internal_link(full_url) and full_url not in visited:
+                            queue.append((full_url, current_depth + 1))
 
         return results
 
@@ -93,6 +90,7 @@ class SimpleWebsiteScraper:
         if not os.path.exists(folder_name):
             os.makedirs(folder_name)
         
+        markdown_data = {}
         for url, result in results.items():
             parsed_url = urlparse(url)
             path = parsed_url.path.strip('/')
@@ -105,24 +103,42 @@ class SimpleWebsiteScraper:
             with open(file_path, 'w') as file:
                 file.write(f"# {url}\n\n")
                 file.write(f"## Content\n\n")
-                file.write(result.markdown_v2.fit_markdown or "No content available.")
+                markdown_content = result.markdown_v2.fit_markdown or "No content available."
+                file.write(markdown_content)
                 file.write(f"\n\n## Images\n")
                 for img in result.media.get('images', []):
                     file.write(f"- Image URL: {img['src']}, Alt: {img['alt']}\n")
+                markdown_data[url] = markdown_content
+        
+        # Store the markdown content as embeddings in Pinecone
+        store_embeddings_in_pinecone(folder_name, markdown_data)
 
 async def main(start_url: str, depth: int):
     async with AsyncWebCrawler() as crawler:
-        scraper = SimpleWebsiteScraper(crawler)
+        scraper = WebScraper(crawler)
         results = await scraper.scrape(start_url, depth)
         
-        folder_name = urlparse(start_url).netloc
+        folder_name = urlparse(start_url).netloc.replace('.', '-').lower()
         scraper.save_results_to_markdown(results, folder_name)
     
     print(f"Crawled {len(results)} pages:")
     for url, result in results.items():
         print(f"- {url}: {len(result.links.get('internal', []))} internal links, {len(result.links.get('external', []))} external links")
+    
 
 if __name__ == "__main__":
     start_url = "http://www.ditekjaya.co.id"
     depth = 10
     asyncio.run(main(start_url, depth))
+
+    folder_name = "www-ditekjaya-co-id"
+    # Example search query
+    query = "tracera"
+    print(f"Folder Name {folder_name}")
+    search_results = search_pinecone(folder_name, query)
+    print(f"Search results for query '{query}':")
+    if search_results:
+        for match in search_results.get('matches', []):
+            print(f"- {match['id']}: {match['score']}")
+    else:
+        print("No results found.")
