@@ -31,6 +31,7 @@ def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str]):
     dimension = 384
     create_index_if_not_exists(index_name, dimension=dimension)
     index = pc.Index(index_name)
+    vectors = []
     for url, content in data.items():
         embedding = model.encode(content).tolist()
         # Ensure embedding is in the correct format
@@ -39,7 +40,8 @@ def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str]):
             logging.error(f"Embedding dimension mismatch for {url}: expected {dimension}, got {len(embedding)}")
             continue
         logging.debug(f"Storing embedding for {url}: {embedding}")
-        index.upsert([(url, embedding)])
+        vectors.append({"id": url, "values": embedding})
+    index.upsert(vectors)
 
 def search_pinecone(index_name: str, query: str, top_k: int = 10):
     dimension = 384
@@ -51,5 +53,5 @@ def search_pinecone(index_name: str, query: str, top_k: int = 10):
         logging.error(f"Query embedding dimension mismatch: expected {dimension}, got {len(query_embedding)}")
         return []
     logging.debug(f"Query embedding: {query_embedding}")
-    results = index.query(queries=[{"values": query_embedding}], top_k=top_k)
+    results = index.query(vector=query_embedding, top_k=top_k,include_values=True,include_metadata=True)
     return results

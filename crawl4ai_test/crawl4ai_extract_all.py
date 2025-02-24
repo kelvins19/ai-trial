@@ -129,16 +129,16 @@ async def main(start_url: str, depth: int):
 if __name__ == "__main__":
     start_url = "http://www.ditekjaya.co.id"
     depth = 10
-    asyncio.run(main(start_url, depth))
+    asyncio.run(main(start_url, depth)) 
 
-    folder_name = "www-ditekjaya-co-id"
-    # Example search query
-    query = "tracera"
-    print(f"Folder Name {folder_name}")
-    search_results = search_pinecone(folder_name, query)
-    print(f"Search results for query '{query}':")
-    if search_results:
-        for match in search_results.get('matches', []):
-            print(f"- {match['id']}: {match['score']}")
-    else:
-        print("No results found.")
+    # folder_name = "www-ditekjaya-co-id"
+    # # Example search query
+    # query = "tracera"
+    # print(f"Folder Name {folder_name}")
+    # search_results = search_pinecone(folder_name, query)
+    # print(f"Search results for query '{query}':")
+    # if search_results:
+    #     for match in search_results.get('matches', []):
+    #         print(f"- {match['id']}: {match['score']}")
+    # else:
+    #     print("No results found.")
