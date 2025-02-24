@@ -1,5 +1,6 @@
 import asyncio
 import os
+import json
 from collections import deque
 from typing import Dict, List, Set
 from crawl4ai.models import CrawlResult
@@ -8,11 +9,15 @@ from urllib.parse import urljoin, urlparse, urlunparse
 from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from db.pinecone_db import store_embeddings_in_pinecone, search_pinecone
+import aiohttp
+import logging
+import re
 
 class WebScraper:
     def __init__(self, crawler: AsyncWebCrawler):
         self.crawler = crawler
         self.base_url = None
+        self.last_modified_data = {}
 
     def is_valid_internal_link(self, link: str) -> bool:
         if not link or link.startswith('#'):
@@ -47,6 +52,26 @@ class WebScraper:
         
         return urlunparse(parsed_joined)
 
+    async def get_last_modified(self, url: str) -> str:
+        async with aiohttp.ClientSession() as session:
+            async with session.head(url) as response:
+                last_modified = response.headers.get('Last-Modified')
+                if last_modified:
+                    print(f"URL {url} Last Modified: {last_modified}")
+                    return last_modified
+                
+                # If Last-Modified header is not available, fetch the page content
+                async with session.get(url) as response:
+                    content = await response.text()
+                    # Extract dateModified from the page source
+                    match = re.search(r'"dateModified":"([^"]+)"', content)
+                    if match:
+                        print(f"URL {url} Last Modified: {match.group(1)}")
+                        return match.group(1)
+                    
+                    print(f"URL {url} Last Modified: {match}")
+                return None
+
     async def scrape(self, start_url: str, max_depth: int) -> Dict[str, CrawlResult]:
         self.base_url = start_url
         results: Dict[str, CrawlResult] = {}
@@ -72,10 +97,17 @@ class WebScraper:
             
             visited.add(current_url)
             
+            last_modified = await self.get_last_modified(current_url)
+            if last_modified and self.last_modified_data.get(current_url) == last_modified:
+                logging.debug(f"Skipping {current_url} as it has not been modified since the last crawl.")
+                # Continue to next URL in the queue
+                continue
+
             result = await self.crawler.arun(url=current_url, config=config)
             
             if result.success:
                 results[current_url] = result
+                self.last_modified_data[current_url] = last_modified
                 
                 if current_depth < max_depth:
                     internal_links = result.links.get('internal', [])
@@ -111,15 +143,27 @@ class WebScraper:
                 markdown_data[url] = markdown_content
         
         # Store the markdown content as embeddings in Pinecone
-        store_embeddings_in_pinecone(folder_name, markdown_data)
+        store_embeddings_in_pinecone(folder_name, markdown_data, chunk_size=100)
+
+    def load_last_modified_data(self, file_path: str):
+        if (os.path.exists(file_path)):
+            with open(file_path, 'r') as file:
+                self.last_modified_data = json.load(file)
+
+    def save_last_modified_data(self, file_path: str):
+        with open(file_path, 'w') as file:
+            json.dump(self.last_modified_data, file)
 
 async def main(start_url: str, depth: int):
     async with AsyncWebCrawler() as crawler:
         scraper = WebScraper(crawler)
+        last_modified_file = 'last_modified.json'
+        scraper.load_last_modified_data(last_modified_file)
         results = await scraper.scrape(start_url, depth)
         
         folder_name = urlparse(start_url).netloc.replace('.', '-').lower()
         scraper.save_results_to_markdown(results, folder_name)
+        scraper.save_last_modified_data(last_modified_file)
     
     print(f"Crawled {len(results)} pages:")
     for url, result in results.items():

@@ -27,7 +27,7 @@ def create_index_if_not_exists(index_name: str, dimension: int):
         )
         pc.create_index(index_name, spec, dimension=dimension)
 
-def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str]):
+def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], chunk_size: int = 100):
     dimension = 384
     create_index_if_not_exists(index_name, dimension=dimension)
     index = pc.Index(index_name)
@@ -41,7 +41,11 @@ def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str]):
             continue
         logging.debug(f"Storing embedding for {url}: {embedding}")
         vectors.append({"id": url, "values": embedding})
-    index.upsert(vectors)
+        if len(vectors) >= chunk_size:
+            index.upsert(vectors)
+            vectors = []
+    if vectors:
+        index.upsert(vectors)
 
 def search_pinecone(index_name: str, query: str, top_k: int = 10):
     dimension = 384
