@@ -9,9 +9,12 @@ from urllib.parse import urljoin, urlparse, urlunparse
 from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 from db.pinecone_db import store_embeddings_in_pinecone, search_pinecone
+from db.db import get_last_modified_from_db, update_last_modified_in_db
 import aiohttp
 import logging
 import re
+from dateutil import parser
+import pytz
 
 class WebScraper:
     def __init__(self, crawler: AsyncWebCrawler):
@@ -63,12 +66,32 @@ class WebScraper:
                 # If Last-Modified header is not available, get the page content
                 async with session.get(url) as response:
                     content = await response.text()
+                    # Check for "dateModified" date
                     match = re.search(r'"dateModified":"([^"]+)"', content)
                     if match:
                         print(f"URL {url} Last Modified: {match.group(1)}")
                         return match.group(1)
                     
+                    # Check for "Updated on" date
+                    match = re.search(r'Updated on (\d{1,2} \w+ \d{4})', content)
+                    if match:
+                        print(f"URL {url} Updated On: {match.group(1)}")
+                        return match.group(1)
+                    
                     print(f"URL {url} Last Modified: {match}")
+
+                return None
+
+    async def extract_next_data(self, url: str) -> str:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                content = await response.text()
+                # Extract data from <script id="__NEXT_DATA__" type="application/json">
+                script_match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', content, re.DOTALL)
+                if script_match:
+                    script_data = script_match.group(1)
+                    print(f"URL {url} __NEXT_DATA__: {script_data}")
+                    return script_data
                 return None
 
     async def scrape(self, start_url: str, max_depth: int) -> Dict[str, CrawlResult]:
@@ -93,10 +116,15 @@ class WebScraper:
             visited.add(current_url)
             
             last_modified = await self.get_last_modified(current_url)
-            if last_modified and self.last_modified_data.get(current_url) == last_modified:
-                print(f"URL {current_url} has not been modified since the last crawl.")
-                # Continue to next URL in the queue
-                is_current_url_changed = False
+            next_data = await self.extract_next_data(current_url)
+            db_last_modified = get_last_modified_from_db(current_url)
+            if last_modified and db_last_modified:
+                last_modified_dt = parser.parse(last_modified).date()
+                print(f"Last Modified DT {last_modified_dt}")
+                if last_modified_dt == db_last_modified:
+                    print(f"URL {current_url} has not been modified since the last crawl.")
+                    # Continue to next URL in the queue
+                    is_current_url_changed = False
 
             if is_current_url_changed:
                 config = CrawlerRunConfig(
@@ -119,6 +147,9 @@ class WebScraper:
                 if is_current_url_changed:
                     results[current_url] = result
                 self.last_modified_data[current_url] = last_modified
+                if next_data:
+                    self.last_modified_data[current_url] = {'last_modified': last_modified, '__NEXT_DATA__': next_data}
+                update_last_modified_in_db(current_url, last_modified)
                 
                 if current_depth < max_depth:
                     internal_links = result.links.get('internal', [])
@@ -146,37 +177,29 @@ class WebScraper:
                     os.makedirs(file_dir)
                 with open(file_path, 'w') as file:
                     file.write(f"# {url}\n\n")
-                    file.write(f"Last Modified: {self.last_modified_data[url]}\n\n")
+                    file.write(f"Last Modified: {self.last_modified_data[url]['last_modified']}\n\n")
                     file.write(f"## Content\n\n")
                     markdown_content = result.markdown_v2.fit_markdown or "No content available."
                     file.write(markdown_content)
                     file.write(f"\n\n## Images\n")
                     for img in result.media.get('images', []):
                         file.write(f"- Image URL: {img['src']}, Alt: {img['alt']}\n")
+                    # Add __NEXT_DATA__ content if available
+                    if '__NEXT_DATA__' in self.last_modified_data[url]:
+                        file.write(f"\n\n## __NEXT_DATA__\n\n")
+                        file.write(self.last_modified_data[url]['__NEXT_DATA__'])
                     markdown_data[url] = markdown_content
         
         # Store the markdown content as embeddings in Pinecone
         store_embeddings_in_pinecone(folder_name, markdown_data, chunk_size=100)
 
-    def load_last_modified_data(self, file_path: str):
-        if (os.path.exists(file_path)):
-            with open(file_path, 'r') as file:
-                self.last_modified_data = json.load(file)
-
-    def save_last_modified_data(self, file_path: str):
-        with open(file_path, 'w') as file:
-            json.dump(self.last_modified_data, file)
-
 async def main(start_url: str, depth: int):
     async with AsyncWebCrawler() as crawler:
         scraper = WebScraper(crawler)
-        last_modified_file = 'last_modified.json'
-        scraper.load_last_modified_data(last_modified_file)
         results = await scraper.scrape(start_url, depth)
         
         folder_name = urlparse(start_url).netloc.replace('.', '-').lower()
         scraper.save_results_to_markdown(results, folder_name)
-        scraper.save_last_modified_data(last_modified_file)
 
     number_of_crawled_pages = 0
     for url, result in results.items():
@@ -187,7 +210,8 @@ async def main(start_url: str, depth: int):
     
 
 if __name__ == "__main__":
-    start_url = "http://www.ditekjaya.co.id"
+    # start_url = "http://www.ditekjaya.co.id"
+    start_url = "https://i12katong.com.sg"
     depth = 10
     asyncio.run(main(start_url, depth)) 
 

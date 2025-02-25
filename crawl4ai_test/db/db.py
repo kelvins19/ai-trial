@@ -2,8 +2,10 @@ import os
 import pg8000
 import psycopg2
 import ssl
+import pytz
 from datetime import datetime
 from psycopg2 import pool
+from dateutil import parser
 
 db_host = os.getenv("DB_HOST")
 db_port = os.getenv("DB_PORT")
@@ -99,3 +101,33 @@ def connect_to_database():
         ssl_context=ssl_context
     )
     return conn
+
+def get_last_modified_from_db(url: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT last_modified FROM crawled_urls WHERE url = %s", (url,))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if result:
+        print(f"Last Modified DB {result[0]}")
+        if result[0] != None:
+            return result[0].date()
+    return None
+
+def update_last_modified_in_db(url: str, last_modified: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    last_modified_dt = None
+    if last_modified != None:
+        last_modified_dt = parser.parse(last_modified)
+    cursor.execute(
+        "INSERT INTO crawled_urls (url, last_modified) VALUES (%s, %s) "
+        "ON CONFLICT (url) DO UPDATE SET last_modified = EXCLUDED.last_modified",
+        (url, last_modified_dt)
+    )
+    conn.commit()
+    
+    cursor.close()
+    conn.close()
