@@ -4,7 +4,7 @@ import json
 from collections import deque
 from typing import Dict, List, Set
 from crawl4ai.models import CrawlResult
-from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode
+from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode, LXMLWebScrapingStrategy
 from urllib.parse import urljoin, urlparse, urlunparse
 from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
@@ -88,10 +88,12 @@ class WebScraper:
                     "ignore_links": True
                 }
             ),
+            scraping_strategy=LXMLWebScrapingStrategy()  # Faster alternative to default BeautifulSoup
         )
 
         while queue:
             current_url, current_depth = queue.popleft()
+            is_current_url_changed = True
             if current_url in visited or current_depth > max_depth:
                 continue
             
@@ -99,14 +101,16 @@ class WebScraper:
             
             last_modified = await self.get_last_modified(current_url)
             if last_modified and self.last_modified_data.get(current_url) == last_modified:
-                logging.debug(f"Skipping {current_url} as it has not been modified since the last crawl.")
+                print(f"URL {current_url} has not been modified since the last crawl.")
                 # Continue to next URL in the queue
-                continue
+                is_current_url_changed = False
 
             result = await self.crawler.arun(url=current_url, config=config)
             
             if result.success:
-                results[current_url] = result
+                results[current_url] = None
+                if is_current_url_changed:
+                    results[current_url] = result
                 self.last_modified_data[current_url] = last_modified
                 
                 if current_depth < max_depth:
@@ -124,23 +128,25 @@ class WebScraper:
         
         markdown_data = {}
         for url, result in results.items():
-            parsed_url = urlparse(url)
-            path = parsed_url.path.strip('/')
-            if not path:
-                path = 'index'
-            file_path = os.path.join(folder_name, f"{path}.md")
-            file_dir = os.path.dirname(file_path)
-            if not os.path.exists(file_dir):
-                os.makedirs(file_dir)
-            with open(file_path, 'w') as file:
-                file.write(f"# {url}\n\n")
-                file.write(f"## Content\n\n")
-                markdown_content = result.markdown_v2.fit_markdown or "No content available."
-                file.write(markdown_content)
-                file.write(f"\n\n## Images\n")
-                for img in result.media.get('images', []):
-                    file.write(f"- Image URL: {img['src']}, Alt: {img['alt']}\n")
-                markdown_data[url] = markdown_content
+            if result != None:
+                parsed_url = urlparse(url)
+                path = parsed_url.path.strip('/')
+                if not path:
+                    path = 'index'
+                file_path = os.path.join(folder_name, f"{path}.md")
+                file_dir = os.path.dirname(file_path)
+                if not os.path.exists(file_dir):
+                    os.makedirs(file_dir)
+                with open(file_path, 'w') as file:
+                    file.write(f"# {url}\n\n")
+                    file.write(f"Last Modified: {self.last_modified_data[url]}\n\n")
+                    file.write(f"## Content\n\n")
+                    markdown_content = result.markdown_v2.fit_markdown or "No content available."
+                    file.write(markdown_content)
+                    file.write(f"\n\n## Images\n")
+                    for img in result.media.get('images', []):
+                        file.write(f"- Image URL: {img['src']}, Alt: {img['alt']}\n")
+                    markdown_data[url] = markdown_content
         
         # Store the markdown content as embeddings in Pinecone
         store_embeddings_in_pinecone(folder_name, markdown_data, chunk_size=100)
@@ -164,10 +170,13 @@ async def main(start_url: str, depth: int):
         folder_name = urlparse(start_url).netloc.replace('.', '-').lower()
         scraper.save_results_to_markdown(results, folder_name)
         scraper.save_last_modified_data(last_modified_file)
-    
-    print(f"Crawled {len(results)} pages:")
+
+    number_of_crawled_pages = 0
     for url, result in results.items():
-        print(f"- {url}: {len(result.links.get('internal', []))} internal links, {len(result.links.get('external', []))} external links")
+        if result != None:
+            number_of_crawled_pages += 1
+
+    print(f"Content changes on {number_of_crawled_pages} pages")
     
 
 if __name__ == "__main__":

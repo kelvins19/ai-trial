@@ -5,13 +5,11 @@ from typing import Dict, List, Set
 from pinecone import ServerlessSpec
 from dotenv import load_dotenv
 import os
-import logging
 
 load_dotenv()
 api_key = os.getenv("PINECONE_API_KEY")
 model_name = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
 
-logging.basicConfig(level=logging.DEBUG)
 
 # Initialize a Pinecone client with your API key
 pc = Pinecone(api_key=api_key)
@@ -37,9 +35,9 @@ def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], chunk_si
         # Ensure embedding is in the correct format
         embedding = [float(x) for x in embedding]
         if len(embedding) != dimension:
-            logging.error(f"Embedding dimension mismatch for {url}: expected {dimension}, got {len(embedding)}")
+            print(f"Embedding dimension mismatch for {url}: expected {dimension}, got {len(embedding)}")
             continue
-        logging.debug(f"Storing embedding for {url}: {embedding}")
+        # print(f"Storing embedding for {url}: {embedding}")
         vectors.append({"id": url, "values": embedding})
         if len(vectors) >= chunk_size:
             index.upsert(vectors)
@@ -54,8 +52,8 @@ def search_pinecone(index_name: str, query: str, top_k: int = 10):
     # Ensure query_embedding is in the correct format
     query_embedding = [float(x) for x in query_embedding]
     if len(query_embedding) != dimension:
-        logging.error(f"Query embedding dimension mismatch: expected {dimension}, got {len(query_embedding)}")
+        print(f"Query embedding dimension mismatch: expected {dimension}, got {len(query_embedding)}")
         return []
-    logging.debug(f"Query embedding: {query_embedding}")
+    # print(f"Query embedding: {query_embedding}")
     results = index.query(vector=query_embedding, top_k=top_k,include_values=True,include_metadata=True)
     return results
