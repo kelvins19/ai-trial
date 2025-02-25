@@ -26,6 +26,7 @@ def create_index_if_not_exists(index_name: str, dimension: int):
         pc.create_index(index_name, spec, dimension=dimension)
 
 def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], chunk_size: int = 100):
+    print(f"Storing {len(data)} embeddings in Pinecone index {index_name}")
     dimension = 384
     create_index_if_not_exists(index_name, dimension=dimension)
     index = pc.Index(index_name)

@@ -60,10 +60,9 @@ class WebScraper:
                     print(f"URL {url} Last Modified: {last_modified}")
                     return last_modified
                 
-                # If Last-Modified header is not available, fetch the page content
+                # If Last-Modified header is not available, get the page content
                 async with session.get(url) as response:
                     content = await response.text()
-                    # Extract dateModified from the page source
                     match = re.search(r'"dateModified":"([^"]+)"', content)
                     if match:
                         print(f"URL {url} Last Modified: {match.group(1)}")
@@ -82,13 +81,7 @@ class WebScraper:
             cache_mode=CacheMode.ENABLED,
             excluded_tags=['nav', 'footer', 'aside'],
             remove_overlay_elements=True,
-            markdown_generator=DefaultMarkdownGenerator(
-                content_filter=PruningContentFilter(threshold=0.48, threshold_type="fixed", min_word_threshold=0),
-                options={
-                    "ignore_links": True
-                }
-            ),
-            scraping_strategy=LXMLWebScrapingStrategy()  # Faster alternative to default BeautifulSoup
+            # scraping_strategy=LXMLWebScrapingStrategy()  # Faster alternative to default BeautifulSoup
         )
 
         while queue:
@@ -104,6 +97,20 @@ class WebScraper:
                 print(f"URL {current_url} has not been modified since the last crawl.")
                 # Continue to next URL in the queue
                 is_current_url_changed = False
+
+            if is_current_url_changed:
+                config = CrawlerRunConfig(
+                    cache_mode=CacheMode.ENABLED,
+                    excluded_tags=['nav', 'footer', 'aside'],
+                    remove_overlay_elements=True,
+                    markdown_generator=DefaultMarkdownGenerator(
+                        content_filter=PruningContentFilter(threshold=0.48, threshold_type="fixed", min_word_threshold=0),
+                        options={
+                            "ignore_links": True
+                        }
+                    ),
+                    # scraping_strategy=LXMLWebScrapingStrategy()  # Faster alternative to default BeautifulSoup
+                )
 
             result = await self.crawler.arun(url=current_url, config=config)
             
