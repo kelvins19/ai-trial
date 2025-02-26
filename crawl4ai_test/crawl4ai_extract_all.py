@@ -82,6 +82,30 @@ class WebScraper:
 
                 return None
 
+    def format_json_to_markdown(self, json_data: dict) -> str:
+        def format_dict(d, indent=0):
+            md = ""
+            for key, value in d.items():
+                md += ' ' * indent + f"- **{key}**: "
+                if isinstance(value, dict):
+                    md += "\n" + format_dict(value, indent + 2)
+                elif isinstance(value, list):
+                    md += "\n" + format_list(value, indent + 2)
+                else:
+                    md += f"{value}\n"
+            return md
+
+        def format_list(lst, indent=0):
+            md = ""
+            for item in lst:
+                if isinstance(item, dict):
+                    md += format_dict(item, indent)
+                else:
+                    md += ' ' * indent + f"- {item}\n"
+            return md
+
+        return format_dict(json_data)
+
     async def extract_next_data(self, url: str) -> str:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
@@ -90,8 +114,13 @@ class WebScraper:
                 script_match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', content, re.DOTALL)
                 if script_match:
                     script_data = script_match.group(1)
-                    print(f"URL {url} __NEXT_DATA__: {script_data}")
-                    return script_data
+                    # print(f"URL {url} __NEXT_DATA__: {script_data}")
+                    try:
+                        json_data = json.loads(script_data)
+                        formatted_json = self.format_json_to_markdown(json_data)
+                        return formatted_json
+                    except json.JSONDecodeError:
+                        return script_data
                 return None
 
     async def scrape(self, start_url: str, max_depth: int) -> Dict[str, CrawlResult]:

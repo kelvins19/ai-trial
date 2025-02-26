@@ -3,6 +3,7 @@ import nest_asyncio
 nest_asyncio.apply()
 
 from crawl4ai import AsyncWebCrawler, CacheMode, BrowserConfig, CrawlerRunConfig, CacheMode
+from crawl4ai.extraction_strategy import JsonCssExtractionStrategy, JsonXPathExtractionStrategy
 
 # Ensure Playwright browsers are installed
 import subprocess
@@ -10,6 +11,7 @@ subprocess.run(["playwright", "install"], check=True)
 
 url = "http://www.ditekjaya.co.id"
 url = "http://www.ditekjaya.co.id/produk-kami/chromatography-systems/gas-chromatographs/tracera/"
+url = "https://i12katong.com.sg/whatsOn"
 
 from dotenv import load_dotenv
 import os
@@ -57,14 +59,30 @@ async def clean_content():
         print(f"Scrapped Content for URL {url}")
         print(result.markdown_v2.fit_markdown)
 
-asyncio.run(clean_content())
+# asyncio.run(clean_content())
 
 async def link_analysis():
     async with AsyncWebCrawler() as crawler:
+        # 1. Define a simple extraction schema
+        schema = {
+            "name": "NEXT DATA",
+            "baseSelector": "//*[@id=\"__NEXT_DATA__\"]", 
+            "fields": [
+                {
+                    "name": "data",
+                    "selector": ".//*[@id=\"__NEXT_DATA__\"]/text()",
+                    "type": "text"
+                }
+            ]
+        }
+        # 2. Create the extraction strategy
+        extraction_strategy = JsonXPathExtractionStrategy(schema, verbose=True)
+
         config = CrawlerRunConfig(
-            cache_mode=CacheMode.ENABLED,
-            exclude_external_links=True,
+            cache_mode=CacheMode.BYPASS,
+            exclude_external_links=False,
             exclude_social_media_links=True,
+            extraction_strategy=extraction_strategy
             # exclude_domains=["facebook.com", "twitter.com"]
         )
         result = await crawler.arun(
@@ -77,8 +95,13 @@ async def link_analysis():
         for link in result.links['internal'][:5]:
             print(f"Href: {link['href']}\nText: {link['text']}\n")
 
+        print(f"Extracted content: {result.extracted_content}")
+        print(f"Metadata: {result.metadata}")
+        # print(f"Cleaned HTML: {result.cleaned_html}")
+        print(f"Fit HTML: {result.fit_html}")
+        # print(f"HTML: {result.html}")
 
-# asyncio.run(link_analysis())
+asyncio.run(link_analysis())
 
 async def media_handling():
     async with AsyncWebCrawler() as crawler:
