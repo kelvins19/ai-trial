@@ -5,6 +5,7 @@ from typing import Dict, List, Set
 from pinecone import ServerlessSpec
 from dotenv import load_dotenv
 import os
+from langchain.text_splitter import MarkdownTextSplitter
 
 load_dotenv()
 api_key = os.getenv("PINECONE_API_KEY")
@@ -31,18 +32,22 @@ def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], chunk_si
     create_index_if_not_exists(index_name, dimension=dimension)
     index = pc.Index(index_name)
     vectors = []
+    chunk_overlap = min(chunk_size // 2, 50)  # Ensure chunk_overlap is smaller than chunk_size
+    splitter = MarkdownTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    
     for url, content in data.items():
-        embedding = model.encode(content).tolist()
-        # Ensure embedding is in the correct format
-        embedding = [float(x) for x in embedding]
-        if len(embedding) != dimension:
-            print(f"Embedding dimension mismatch for {url}: expected {dimension}, got {len(embedding)}")
-            continue
-        # print(f"Storing embedding for {url}: {embedding}")
-        vectors.append({"id": url, "values": embedding})
-        if len(vectors) >= chunk_size:
-            index.upsert(vectors)
-            vectors = []
+        chunks = splitter.split_text(content)
+        for i, chunk in enumerate(chunks):
+            embedding = model.encode(chunk).tolist()
+            # Ensure embedding is in the correct format
+            embedding = [float(x) for x in embedding]
+            if len(embedding) != dimension:
+                print(f"Embedding dimension mismatch for {url}: expected {dimension}, got {len(embedding)}")
+                continue
+            vectors.append({"id": f"{url}_chunk_{i}", "values": embedding})
+            if len(vectors) >= chunk_size:
+                index.upsert(vectors)
+                vectors = []
     if vectors:
         index.upsert(vectors)
 
