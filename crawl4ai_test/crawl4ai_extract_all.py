@@ -136,6 +136,7 @@ class WebScraper:
             # scraping_strategy=LXMLWebScrapingStrategy()  # Faster alternative to default BeautifulSoup
         )
 
+
         while queue:
             current_url, current_depth = queue.popleft()
             is_current_url_changed = True

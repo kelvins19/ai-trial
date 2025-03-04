@@ -131,3 +131,16 @@ def update_last_modified_in_db(url: str, last_modified: str):
     
     cursor.close()
     conn.close()
+
+def upsert_docstore_in_db(id: str, content: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO docstore (id, content) VALUES (%s, %s) "
+        "ON CONFLICT (id) DO UPDATE SET content = EXCLUDED.content",
+        (id, content)
+    )
+    conn.commit()
+    
+    cursor.close()
+    conn.close()

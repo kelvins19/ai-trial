@@ -6,10 +6,11 @@ from pinecone import ServerlessSpec
 from dotenv import load_dotenv
 import os
 from langchain.text_splitter import MarkdownTextSplitter
+from .db import upsert_docstore_in_db
 
 load_dotenv()
 api_key = os.getenv("PINECONE_API_KEY")
-model_name = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
+model_name = os.getenv("EMBEDDING_MODEL_NAME", "all-mpnet-base-v2")
 
 
 # Initialize a Pinecone client with your API key
@@ -28,7 +29,7 @@ def create_index_if_not_exists(index_name: str, dimension: int):
 
 def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], chunk_size: int = 100):
     print(f"Storing {len(data)} embeddings in Pinecone index {index_name}")
-    dimension = 384
+    dimension = 768
     create_index_if_not_exists(index_name, dimension=dimension)
     index = pc.Index(index_name)
     vectors = []
@@ -44,7 +45,10 @@ def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], chunk_si
             if len(embedding) != dimension:
                 print(f"Embedding dimension mismatch for {url}: expected {dimension}, got {len(embedding)}")
                 continue
-            vectors.append({"id": f"{url}_chunk_{i}", "values": embedding})
+            doc_id = f"{url}_chunk_{i}"
+            vectors.append({"id": doc_id, "values": embedding, "metadata": {"doc_id": doc_id, "doc_type": "text", "page_number": 1, "filename": url, "summary": chunk}})
+            # Upsert plaintext content to local DB
+            upsert_docstore_in_db(doc_id, chunk)
             if len(vectors) >= chunk_size:
                 index.upsert(vectors)
                 vectors = []
@@ -52,7 +56,7 @@ def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], chunk_si
         index.upsert(vectors)
 
 def search_pinecone(index_name: str, query: str, top_k: int = 10):
-    dimension = 384
+    dimension = 768
     index = pc.Index(index_name)
     query_embedding = model.encode(query).tolist()
     # Ensure query_embedding is in the correct format

@@ -2,15 +2,15 @@ import asyncio
 import nest_asyncio
 nest_asyncio.apply()
 
-from crawl4ai import AsyncWebCrawler, CacheMode, BrowserConfig, CrawlerRunConfig, CacheMode
+from crawl4ai import AsyncWebCrawler, CacheMode, BrowserConfig, CrawlerRunConfig, CacheMode, LLMContentFilter
 from crawl4ai.extraction_strategy import JsonCssExtractionStrategy, JsonXPathExtractionStrategy
 
 # Ensure Playwright browsers are installed
 import subprocess
 subprocess.run(["playwright", "install"], check=True)
 
-url = "http://www.ditekjaya.co.id"
-url = "http://www.ditekjaya.co.id/produk-kami/chromatography-systems/gas-chromatographs/tracera/"
+# url = "http://www.ditekjaya.co.id"
+# url = "http://www.ditekjaya.co.id/produk-kami/chromatography-systems/gas-chromatographs/tracera/"
 url = "https://i12katong.com.sg/whatsOn"
 
 from dotenv import load_dotenv
@@ -92,13 +92,22 @@ async def link_analysis():
         print(f"Found {len(result.links['internal'])} internal links")
         print(f"Found {len(result.links['external'])} external links")
 
+        for link in result.links['external'][:5]:
+            print(f"External Href: {link['href']}\nText: {link['text']}\n")
+
         for link in result.links['internal'][:5]:
-            print(f"Href: {link['href']}\nText: {link['text']}\n")
+            print(f"Internal Href: {link['href']}\nText: {link['text']}\n")
+
+        # Extract API call links
+        api_calls = [link for link in result.links['internal'] if 'cms' in link['href']]
+        print(f"Found {len(api_calls)} API call links")
+        for api_call in api_calls:
+            print(f"API Call Href: {api_call['href']}\nText: {api_call['text']}\n")
 
         print(f"Extracted content: {result.extracted_content}")
         print(f"Metadata: {result.metadata}")
         # print(f"Cleaned HTML: {result.cleaned_html}")
-        print(f"Fit HTML: {result.fit_html}")
+        # print(f"Fit HTML: {result.fit_html}")
         # print(f"HTML: {result.html}")
 
 asyncio.run(link_analysis())
