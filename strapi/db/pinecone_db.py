@@ -8,14 +8,19 @@ import os
 from langchain.text_splitter import MarkdownTextSplitter
 from .db import upsert_docstore_in_db
 import json
+from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
+import numpy as np
 
 load_dotenv()
 api_key = os.getenv("PINECONE_API_KEY")
-model_name = os.getenv("EMBEDDING_MODEL_NAME", "all-mpnet-base-v2")
+model_name = os.getenv("EMBEDDING_MODEL_NAME", "sentence-transformers/all-mpnet-base-v2")
+embed_access_key = "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"
 
 # Initialize a Pinecone client with your API key
 pc = Pinecone(api_key=api_key)
-model = SentenceTransformer(model_name)
+
+# Initialize the HuggingFaceInferenceAPIEmbeddings with your model name
+model = HuggingFaceInferenceAPIEmbeddings(model_name=model_name, api_key=embed_access_key)
 
 def create_index_if_not_exists(index_name: str, dimension: int):
     existing_indexes = [index_info["name"] for index_info in pc.list_indexes()]
@@ -77,9 +82,9 @@ def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], model_na
                 print(f"Chunk size exceeds the limit: {len(chunk.encode('utf-8'))} bytes")
                 continue
 
-            embedding = model.encode(chunk).tolist()
-            # Ensure embedding is in the correct format
+            embedding = model.embed_query(chunk)
             embedding = [float(x) for x in embedding]
+
             if len(embedding) != dimension:
                 print(f"Embedding dimension mismatch: expected {dimension}, got {len(embedding)}")
                 continue
