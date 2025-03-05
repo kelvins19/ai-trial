@@ -1,0 +1,24 @@
+{
+  "event": "entry.update",
+  "createdAt": "2025-03-05T02:31:15.531Z",
+  "model": "article",
+  "uid": "api::article.article",
+  "entry": {
+    "id": 24,
+    "artist_name": "Johnrey Quiban",
+    "body": "<p>Separated families, longing for loved ones, missing home. These were the sad sentiments faced by many, including the artist himself who is an expatriate, during the COVID-19 pandemic. The painting was inspired by the view of a landing airplane, bringing with it the joy and anticipation of being reunited with those who matter…<br><br>More info at https://www.soundof.art/shop/p/almost-there</p>",
+    "contact_number": "",
+    "email": "",
+    "material": "Oil on Canvas, 41 x 61cm",
+    "level": "#01-29",
+    "price": "$1,100 (Original with Frame)",
+    "publishedAt": "2021-12-08T15:12:00.476Z",
+    "createdAt": "2021-12-08T15:11:57.546Z",
+    "updatedAt": "2025-03-05T02:31:15.466Z",
+    "art_name": "Almost There",
+    "enquiry": "",
+    "photos": "",
+    "strapi_stage": "",
+    "strapi_assignee": ""
+  }
+}
