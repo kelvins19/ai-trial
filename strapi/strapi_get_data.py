@@ -17,9 +17,12 @@ def get_data_from_api(model_name):
 
 # Run the test
 if __name__ == "__main__":
-    model_name = "config-contact-us"
-    datas = get_data_from_api(model_name)
-    print(f"Context retrieved: {json.dumps(datas, indent=2)}")
-    
-    index_name = "i12katong-strapi"
-    store_embeddings_in_pinecone(index_name, datas, model_name)
+    # data = get_data_from_api("config-reward")
+    # print(data)
+    for model_name in PATHS.keys():
+        datas = get_data_from_api(model_name)
+        # print(f"Context retrieved for {model_name}: {json.dumps(datas, indent=2)}")
+        print(f"Context retrieved for {model_name}")
+        
+        index_name = "i12katong-strapi"
+        store_embeddings_in_pinecone(index_name, datas, model_name)
