@@ -68,8 +68,8 @@ class Crawl4AIRag:
 
         try:
             response = requests.post(
-                "http://localhost:8000/knowledge/context",
-                json={"query": query, "max_document": 10},
+                "http://localhost:8000/knowledge/context-strapi-temp",
+                json={"query": query, "max_document": 5},
                 auth=(username, password)
             )
             response.raise_for_status()
@@ -170,6 +170,7 @@ async def main():
     prompt = "Is there any ongoing event?"
     prompt = "Tell me about weekday dine and delight event"
     prompt = "What is available deals on i12katong mall?"
+    prompt = "Where is watsons located in this mall?"
     response = await chatbot.get_response(input_prompt=prompt, phone_number="1234567890")
     
     # Print the response
