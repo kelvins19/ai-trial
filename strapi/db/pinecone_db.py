@@ -5,11 +5,12 @@ from typing import Dict
 from pinecone import ServerlessSpec
 from dotenv import load_dotenv
 import os
-from langchain.text_splitter import MarkdownTextSplitter, RecursiveJsonSplitter
+from langchain.text_splitter import MarkdownTextSplitter, RecursiveJsonSplitter, RecursiveCharacterTextSplitter
 from .db import upsert_docstore_in_db
 import json
 from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 import numpy as np
+from strapi_rag import KeywordGenerator, SummaryGenerator
 
 load_dotenv()
 api_key = os.getenv("PINECONE_API_KEY")
@@ -67,6 +68,13 @@ def chunk_json_data(json_data, max_metadata_size):
     chunks = splitter.split_text(json_data, True, True)
     return chunks
 
+def chunk_json_data_text(json_data):
+    if isinstance(json_data, dict):
+        json_data = json.dumps(json_data)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=100, chunk_overlap=20)
+    chunks = splitter.split_text(json_data)
+    return chunks
+
 def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], model_name: str):
     print(f"Storing {model_name} embeddings in Pinecone index {index_name}")
     dimension = 768
@@ -104,7 +112,7 @@ def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], model_na
     if vectors:
         index.upsert(vectors)
 
-def store_embeddings_in_pinecone_chunkjson(index_name: str, data: Dict[str, str], model_name: str):
+async def store_embeddings_in_pinecone_chunkjson(index_name: str, data: Dict[str, str], model_name: str):
     print(f"Storing {model_name} embeddings in Pinecone index {index_name}")
     dimension = 768
     create_index_if_not_exists(index_name, dimension=dimension)
@@ -112,16 +120,25 @@ def store_embeddings_in_pinecone_chunkjson(index_name: str, data: Dict[str, str]
     vectors = []
     max_metadata_size = 1024  
 
-    # if not data.get('data'):
-    #     print("No data to process.")
-    #     return
+    # Initialize the KeywordGenerator
+    keyword_generator = KeywordGenerator(
+        model_name=os.getenv("OPENAI_MODEL_NAME"),
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url=os.getenv("OPENAI_BASE_URL"),
+        prompt=""
+    )
 
-    # if isinstance(data['data'], (list, dict)) and not data['data']:
-    #     print("Empty data structure.")
-    #     return
+    # Initialize the SummaryGenerator
+    sumamry_generator = SummaryGenerator(
+        model_name=os.getenv("OPENAI_MODEL_NAME"),
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url=os.getenv("OPENAI_BASE_URL"),
+        prompt=""
+    )
 
-    # print(data['data'])
-    chunks = chunk_json_data(data, max_metadata_size)
+    # Ensure data is a JSON string
+    json_data = json.dumps(data)
+    chunks = chunk_json_data_text(json_data)
 
     for i, chunk in enumerate(chunks):
         try:
@@ -138,7 +155,25 @@ def store_embeddings_in_pinecone_chunkjson(index_name: str, data: Dict[str, str]
                 continue
 
             doc_id = f"{model_name}_chunk_{i}_json"
-            vectors.append({"id": doc_id, "values": embedding, "metadata": {"doc_id": doc_id, "doc_type": "text", "filename": doc_id, "summary": chunk, "page_number": 1}})
+
+            # Generate keywords for the chunk
+            keyword_response = await keyword_generator.generate_keywords(input_text=chunk, phone_number="1234567890")
+            keywords = json.loads(keyword_response).get("keywords", [])
+
+            summary_response = await sumamry_generator.generate_summary(input_text=chunk, phone_number="123456789")
+
+            vectors.append({
+                "id": doc_id, 
+                "values": embedding, 
+                "metadata": {
+                    "doc_id": doc_id, 
+                    "doc_type": "text", 
+                    "filename": doc_id, 
+                    "summary": summary_response, 
+                    "page_number": 1,
+                    "keywords": keywords
+                }
+            })
             # Upsert plaintext content to local DB
             upsert_docstore_in_db(doc_id, chunk)
         except Exception as e:

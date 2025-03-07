@@ -155,6 +155,253 @@ class Crawl4AIRag:
         response = await self._call_openrouter_batch(crawlDeps)
         return response
 
+class KeywordGenerator:
+    def __init__(self, model_name: str = None, api_key: str = None, base_url: str = None, prompt: str = None):
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        if not self.api_key:
+            raise ValueError("API key is required. Set OPENAI_API_KEY environment variable or pass api_key parameter.")
+            
+        self.model_name = model_name or os.getenv("OPENAI_MODEL_NAME")
+        self.base_url = base_url or os.getenv("OPENAI_BASE_URL")
+        
+        self.model = OpenAIModel(
+            model_name=self.model_name, 
+            api_key=self.api_key,
+            base_url=self.base_url,
+        )
+
+        system_prompt = "You are an assistant tasked with identifying contents from query that is given. generate keywords base on extracted information."
+        if prompt != "": 
+            system_prompt = prompt
+
+        system_prompt += """
+        I have an query json that may containing a descriptions and details of the given datas. Your task is to:
+        Translate it into english if the given query text is not in english.
+        Identify and extract the relevant details that can be readable by human from the query.
+        Generate lowercase keywords based on the extracted information in multiple formats, including but not limited to:
+        space separated, strip-separated, underscore_separated, no separation
+        Ensure the keywords are diverse but still relevant to the extracted information.
+        Return the output in JSON format as follows:
+        {{
+            "keywords": [
+                <keyword1>,
+            ]
+        }}
+        Example Output:
+        If the extracted information is:
+        {"data": {"0": {"body": "<p><strong><u>Weekday Specials (Monday \u2013 Thursday)</u></strong></p><p><strong>FREE Movie Ticket</strong><br>Spend min. $80* and redeem a Golden Village movie ticket (worth $11.50)!</p><p><strong>PLUS! BONUS 1,000 Rewards+ Points</strong><br>When you spend at least $10 at participating F&amp;B shops on B1 as part of your $80* total spend.</p><p>List of participating B1 F&amp;B shops:</p><ul><li>Boost Juice</li><li>Edith Patisserie</li><li>Fun Toast</li><li>GOPIZZA</li><li>Kei Kaisendon</li><li>Maki-san</li><li>Ninja Mama</li><li>Pancake King &amp; Kopi</li><li>Pita Tree Kebabs</li><li>Rollgaadi</li><li>SG Hawker</li><li>Tea Pulse</li><li>The Fish &amp; Chips Shop</li><li>Toriten</li><li>Typhoon Caf\u00e9</li><li>Yum Yum Thai</li></ul><p><strong>SAFRA Exclusive</strong><br>Present your SAFRA membership card and redeem a FREE i12 Katong umbrella with a min. spend of $80*.</p><p>*Max. of 3 same-day receipts. Valid from Monday - Thursday only. Double spending required for supermarket and enrichment centres. Limited to the first 500 redemptions. Limited to 1 redemption per member per day. Redemptions must be made at the Concierge at Level 3. Other <a href=\"https://shorturl.at/ixHVL\" target=\"_blank\" rel=\"noopener noreferrer\">Terms &amp; Conditions </a>apply.</p>"}}}
+        The JSON output should be:
+        {{
+            "keywords": [
+                "weekday specials",
+                "events",
+                "weekday",
+                "deals",
+                "bonus",
+                "specials",
+                "lc 2030cnt"
+            ],
+        }}
+        Make sure the keywords are properly formatted and case-sensitive to match potential search queries. Make sure only return json
+        """
+
+        self.system_prompt = system_prompt
+        self.timer = Timer()
+        self.sessions = defaultdict(dict)
+        self.agents = {}
+
+    def get_agent(self, phone_number: str) -> Agent:
+        if phone_number not in self.agents:
+            print("--------------------------------")
+            print("Agent Session not found: %s" % phone_number)
+            print("--------------------------------")
+            agent = Agent(self.model, system_prompt=self.system_prompt, deps_type=Deps)
+            self.agents[phone_number] = agent
+        return self.agents[phone_number]
+
+    async def _call_openrouter_batch(self, deps: Deps) -> str:
+        max_retries = 3
+        retry_delay = 1
+
+        for attempt in range(max_retries):
+            try:
+                print(f"Calling OpenRouter API with model: {self.model_name}")
+                print(f"Using base URL: {self.base_url}")
+
+                print(f"User prompt: {deps.prompt}")
+                self.timer.start()
+                agent = self.get_agent(deps.phone_number)
+                
+                message_history_json = self.sessions[deps.phone_number].get('chat_history', [])
+                message_history = ModelMessagesTypeAdapter.validate_json(json.dumps(message_history_json))
+
+                result = await agent.run(user_prompt=deps.prompt, deps=deps, message_history=message_history)
+                self.timer.stop()
+
+                if result is None:
+                    raise Exception("API returned no result")
+
+                usage = result.usage()
+                if usage is None:
+                    raise Exception("API usage information is missing")
+
+                total_tokens = usage.total_tokens
+                total_time = self.timer.get_elapsed_time()
+
+                print(f"Total tokens used: {total_tokens}")
+                print(f"Total time taken: {total_time:.3f} ms")
+
+                response = result.data
+
+                print(f"API Response: {response}")
+
+                if response.endswith("```}"):
+                    response = response.replace("```}", "").strip()
+                if response.endswith("```"):
+                    response = response.replace("```", "").strip()
+                if response.startswith("```"):
+                    response = response.replace("```", "").strip()
+                if response.startswith("json"):
+                    response = response.replace("json", "").strip()
+
+                self.sessions[deps.phone_number]['chat_history'] = json.loads(result.all_messages_json().decode('utf-8'))
+
+                return response
+
+            except Exception as e:
+                print(f"API Error detail: {str(e)}")
+                if attempt < max_retries - 1:
+                    print(f"Retrying in {retry_delay} seconds...")
+                    time_module.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    raise Exception(f"API Error: {str(e)}")
+
+    async def generate_keywords(self, input_text: str, phone_number: str) -> str:
+        if input_text == "":
+            input_text = "generate_keywords"
+        
+        prompt = f"""
+        Session: {phone_number}
+
+        {input_text}
+        """
+
+        crawlDeps = Deps(
+            phone_number=phone_number,
+            prompt=prompt
+        )
+
+        response = await self._call_openrouter_batch(crawlDeps)
+        return response
+
+
+class SummaryGenerator:
+    def __init__(self, model_name: str = None, api_key: str = None, base_url: str = None, prompt: str = None):
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        if not self.api_key:
+            raise ValueError("API key is required. Set OPENAI_API_KEY environment variable or pass api_key parameter.")
+            
+        self.model_name = model_name or os.getenv("OPENAI_MODEL_NAME")
+        self.base_url = base_url or os.getenv("OPENAI_BASE_URL")
+        
+        self.model = OpenAIModel(
+            model_name=self.model_name, 
+            api_key=self.api_key,
+            base_url=self.base_url,
+        )
+
+        system_prompt = """You are an assistant tasked with identifying contents from query that is given. 
+        Generate summary of the given queries in human readable format with maximum up to 500 words. 
+        Disregard all informations that is too techical such as created and updated at data, dimensions and url of the images, """ 
+
+        self.system_prompt = system_prompt
+        self.timer = Timer()
+        self.sessions = defaultdict(dict)
+        self.agents = {}
+
+    def get_agent(self, phone_number: str) -> Agent:
+        if phone_number not in self.agents:
+            print("--------------------------------")
+            print("Agent Session not found: %s" % phone_number)
+            print("--------------------------------")
+            agent = Agent(self.model, system_prompt=self.system_prompt, deps_type=Deps)
+            self.agents[phone_number] = agent
+        return self.agents[phone_number]
+
+    async def _call_openrouter_batch(self, deps: Deps) -> str:
+        max_retries = 3
+        retry_delay = 1
+
+        for attempt in range(max_retries):
+            try:
+                print(f"Calling OpenRouter API with model: {self.model_name}")
+                print(f"Using base URL: {self.base_url}")
+
+                print(f"User prompt: {deps.prompt}")
+                self.timer.start()
+                agent = self.get_agent(deps.phone_number)
+                
+                message_history_json = self.sessions[deps.phone_number].get('chat_history', [])
+                message_history = ModelMessagesTypeAdapter.validate_json(json.dumps(message_history_json))
+
+                result = await agent.run(user_prompt=deps.prompt, deps=deps, message_history=message_history)
+                self.timer.stop()
+
+                if result is None:
+                    raise Exception("API returned no result")
+
+                usage = result.usage()
+                if usage is None:
+                    raise Exception("API usage information is missing")
+
+                total_tokens = usage.total_tokens
+                total_time = self.timer.get_elapsed_time()
+
+                print(f"Total tokens used: {total_tokens}")
+                print(f"Total time taken: {total_time:.3f} ms")
+
+                response = result.data
+
+                print(f"API Response: {response}")
+
+                if response.endswith("```}"):
+                    response = response.replace("```}", "").strip()
+                if response.endswith("```"):
+                    response = response.replace("```", "").strip()
+                if response.startswith("```"):
+                    response = response.replace("```", "").strip()
+                if response.startswith("json"):
+                    response = response.replace("json", "").strip()
+
+                self.sessions[deps.phone_number]['chat_history'] = json.loads(result.all_messages_json().decode('utf-8'))
+
+                return response
+
+            except Exception as e:
+                print(f"API Error detail: {str(e)}")
+                if attempt < max_retries - 1:
+                    print(f"Retrying in {retry_delay} seconds...")
+                    time_module.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    raise Exception(f"API Error: {str(e)}")
+
+    async def generate_summary(self, input_text: str, phone_number: str) -> str:
+        if input_text == "":
+            input_text = "generate_summary"
+        
+        prompt = f"""
+        {input_text}
+        """
+
+        crawlDeps = Deps(
+            phone_number=phone_number,
+            prompt=prompt
+        )
+
+        response = await self._call_openrouter_batch(crawlDeps)
+        return response
 
 async def main():
     # Initialize the Chatbot with the directory containing PDF files and other parameters
@@ -168,7 +415,7 @@ async def main():
     prompt = "What is the customer service phone number of the mall?"
     # prompt = "What is the mall address?"
     prompt = "Is there any ongoing event?"
-    # prompt = "Tell me about weekday dine and delight event"
+    prompt = "Tell me about weekday dine and delight event"
     # prompt = "What is available deals on i12katong mall?"
     # prompt = "Where is watsons located in this mall?"
     # prompt = "What is rewards+?"
@@ -181,6 +428,7 @@ async def main():
     # Print the chat history
     # chat_history = chatbot.get_chat_history(phone_number="1234567890")
     # print("Chat history:", chat_history)
+
 
 # Run the test
 if __name__ == "__main__":
