@@ -5,7 +5,7 @@ from typing import Dict
 from pinecone import ServerlessSpec
 from dotenv import load_dotenv
 import os
-from langchain.text_splitter import MarkdownTextSplitter
+from langchain.text_splitter import MarkdownTextSplitter, RecursiveJsonSplitter
 from .db import upsert_docstore_in_db
 import json
 from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
@@ -61,18 +61,23 @@ def format_json_to_markdown(json_data) -> str:
     else:
         return str(json_data)
 
+def chunk_json_data(json_data, max_metadata_size):
+    splitter = RecursiveJsonSplitter(min_chunk_size=10, max_chunk_size=max_metadata_size)
+    # print(f"Json dumps {json.dumps(json_data)}")
+    chunks = splitter.split_text(json_data, True, True)
+    return chunks
+
 def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], model_name: str):
     print(f"Storing {model_name} embeddings in Pinecone index {index_name}")
     dimension = 768
     create_index_if_not_exists(index_name, dimension=dimension)
     index = pc.Index(index_name)
     vectors = []
-    max_metadata_size = 40960  # 40 KB
+    max_metadata_size = 1024  
 
     content = format_json_to_markdown(data['data'])
     if len(content.encode('utf-8')) > max_metadata_size:
-        splitter = MarkdownTextSplitter(chunk_size=max_metadata_size // 2)
-        chunks = splitter.split_text(content)
+        chunks = chunk_json_data(data['data'], max_metadata_size)
     else:
         chunks = [content]
 
@@ -90,6 +95,49 @@ def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], model_na
                 continue
 
             doc_id = f"{model_name}_chunk_{i}"
+            vectors.append({"id": doc_id, "values": embedding, "metadata": {"doc_id": doc_id, "doc_type": "text", "filename": doc_id, "summary": chunk, "page_number": 1}})
+            # Upsert plaintext content to local DB
+            upsert_docstore_in_db(doc_id, chunk)
+        except Exception as e:
+            print(f"Error processing chunk {i}: {e}")
+
+    if vectors:
+        index.upsert(vectors)
+
+def store_embeddings_in_pinecone_chunkjson(index_name: str, data: Dict[str, str], model_name: str):
+    print(f"Storing {model_name} embeddings in Pinecone index {index_name}")
+    dimension = 768
+    create_index_if_not_exists(index_name, dimension=dimension)
+    index = pc.Index(index_name)
+    vectors = []
+    max_metadata_size = 1024  
+
+    # if not data.get('data'):
+    #     print("No data to process.")
+    #     return
+
+    # if isinstance(data['data'], (list, dict)) and not data['data']:
+    #     print("Empty data structure.")
+    #     return
+
+    # print(data['data'])
+    chunks = chunk_json_data(data, max_metadata_size)
+
+    for i, chunk in enumerate(chunks):
+        try:
+            embedding = model.embed_query(chunk)
+            embedding = [float(x) for x in embedding]
+
+            if len(chunk.encode('utf-8')) > 40960:
+                print(f"Chunk {chunk}")
+                print(f"Chunk size exceeds the limit: {len(chunk.encode('utf-8'))} bytes")
+                continue
+
+            if len(embedding) != dimension:
+                print(f"Embedding dimension mismatch: expected {dimension}, got {len(embedding)}")
+                continue
+
+            doc_id = f"{model_name}_chunk_{i}_json"
             vectors.append({"id": doc_id, "values": embedding, "metadata": {"doc_id": doc_id, "doc_type": "text", "filename": doc_id, "summary": chunk, "page_number": 1}})
             # Upsert plaintext content to local DB
             upsert_docstore_in_db(doc_id, chunk)

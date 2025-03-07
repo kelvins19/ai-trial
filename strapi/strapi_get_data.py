@@ -1,7 +1,7 @@
 import requests
 from constants import BASE_URL, PATHS
 import json
-from db.pinecone_db import store_embeddings_in_pinecone
+from db.pinecone_db import store_embeddings_in_pinecone, store_embeddings_in_pinecone_chunkjson
 
 def get_data_from_api(model_name):
     if model_name not in PATHS:
@@ -24,5 +24,6 @@ if __name__ == "__main__":
         # print(f"Context retrieved for {model_name}: {json.dumps(datas, indent=2)}")
         print(f"Context retrieved for {model_name}")
         
-        index_name = "i12katong-strapi"
-        store_embeddings_in_pinecone(index_name, datas, model_name)
+        index_name = "i12katong-strapi-json"
+        # store_embeddings_in_pinecone(index_name, datas, model_name)
+        store_embeddings_in_pinecone_chunkjson(index_name, datas, model_name)

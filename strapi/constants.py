@@ -9,6 +9,6 @@ PATHS = {
     "config-contact-us": '/config-contact-us',
     "config-about-us": '/config-about-us',
     "config-reward": '/config-reward',
-    "config-kiosk": '/config-kiosk',
-    "config-content-footer": '/config-content-footer',
+    # "config-kiosk": '/config-kiosk',
+    # "config-content-footer": '/config-content-footer',
 }
