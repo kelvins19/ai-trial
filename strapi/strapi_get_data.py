@@ -14,7 +14,7 @@ def normalize_data(data):
         'mall_address', 'phone_customer_service', 'counter_operating_hours', 'summary', 'getting_by_bus', 'getting_by_car',
         'getting_by_train', 'concierge_services', 'amentities_wifi', 'amentities_nursing_room', 'amentities_charging_point',
         'carpark_charges_car', 'carpark_charges_motorcycle', 'about', 'faq', 'terms', 'terms_of_use', 'data_protection_policy',
-        'general_privacy_notice', 'whistleblowing_policy'
+        'general_privacy_notice', 'whistleblowing_policy', 'photos'
     }
     normalized_data = []
 
@@ -29,6 +29,11 @@ def normalize_data(data):
             raise ValueError("Expected each item in data to be a dictionary")
         normalized_item = {key: strip_html_tags(value) if isinstance(value, str) else value 
                            for key, value in item.items() if key in fields_to_keep and value is not None}
+        
+        # Extract photos.url if photos exist
+        if 'photos' in item and isinstance(item['photos'], list):
+            normalized_item['photos'] = [photo['url'] for photo in item['photos'] if 'url' in photo]
+
         normalized_data.append(normalized_item)
 
     return normalized_data

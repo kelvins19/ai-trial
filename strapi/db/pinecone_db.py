@@ -71,7 +71,7 @@ def chunk_json_data(json_data, max_metadata_size):
 def chunk_json_data_text(json_data):
     if isinstance(json_data, dict):
         json_data = json.dumps(json_data)
-    splitter = RecursiveCharacterTextSplitter(chunk_size=100, chunk_overlap=20)
+    splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=100)
     chunks = splitter.split_text(json_data)
     return chunks
 
@@ -157,7 +157,7 @@ async def store_embeddings_in_pinecone_chunkjson(index_name: str, data: Dict[str
             doc_id = f"{model_name}_chunk_{i}_json"
 
             # Generate keywords for the chunk
-            keyword_response = await keyword_generator.generate_keywords(input_text=chunk, phone_number="1234567890")
+            keyword_response = await keyword_generator.generate_keywords(input_text=chunk, phone_number="1234567890", model_name=model_name)
             keywords = json.loads(keyword_response).get("keywords", [])
 
             summary_response = await sumamry_generator.generate_summary(input_text=chunk, phone_number="123456789")

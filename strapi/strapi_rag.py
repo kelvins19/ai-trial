@@ -170,17 +170,16 @@ class KeywordGenerator:
             base_url=self.base_url,
         )
 
-        system_prompt = "You are an assistant tasked with identifying contents from query that is given. generate keywords base on extracted information."
-        if prompt != "": 
-            system_prompt = prompt
-
-        system_prompt += """
-        I have an query json that may containing a descriptions and details of the given datas. Your task is to:
+        system_prompt = """
+        You are an assistant tasked with identifying contents from query that is given. generate keywords base on extracted information..
+I have an query json that may containing a descriptions and details of the given datas. Your task is to:
         Translate it into english if the given query text is not in english.
         Identify and extract the relevant details that can be readable by human from the query.
+        Also if the details have abbreviations in there, also generate some relevant keywords from that abbreviations.
         Generate lowercase keywords based on the extracted information in multiple formats, including but not limited to:
         space separated, strip-separated, underscore_separated, no separation
         Ensure the keywords are diverse but still relevant to the extracted information.
+        Also consider the category given from the details.
         Return the output in JSON format as follows:
         {{
             "keywords": [
@@ -189,17 +188,32 @@ class KeywordGenerator:
         }}
         Example Output:
         If the extracted information is:
-        {"data": {"0": {"body": "<p><strong><u>Weekday Specials (Monday \u2013 Thursday)</u></strong></p><p><strong>FREE Movie Ticket</strong><br>Spend min. $80* and redeem a Golden Village movie ticket (worth $11.50)!</p><p><strong>PLUS! BONUS 1,000 Rewards+ Points</strong><br>When you spend at least $10 at participating F&amp;B shops on B1 as part of your $80* total spend.</p><p>List of participating B1 F&amp;B shops:</p><ul><li>Boost Juice</li><li>Edith Patisserie</li><li>Fun Toast</li><li>GOPIZZA</li><li>Kei Kaisendon</li><li>Maki-san</li><li>Ninja Mama</li><li>Pancake King &amp; Kopi</li><li>Pita Tree Kebabs</li><li>Rollgaadi</li><li>SG Hawker</li><li>Tea Pulse</li><li>The Fish &amp; Chips Shop</li><li>Toriten</li><li>Typhoon Caf\u00e9</li><li>Yum Yum Thai</li></ul><p><strong>SAFRA Exclusive</strong><br>Present your SAFRA membership card and redeem a FREE i12 Katong umbrella with a min. spend of $80*.</p><p>*Max. of 3 same-day receipts. Valid from Monday - Thursday only. Double spending required for supermarket and enrichment centres. Limited to the first 500 redemptions. Limited to 1 redemption per member per day. Redemptions must be made at the Concierge at Level 3. Other <a href=\"https://shorturl.at/ixHVL\" target=\"_blank\" rel=\"noopener noreferrer\">Terms &amp; Conditions </a>apply.</p>"}}}
+        Category: deals
+        {"data": {"0": {"body": "<p><strong><u>Weekday Specials F&B (Monday \u2013 Thursday)</u></strong></p><p><strong>FREE Movie Ticket</strong><br>Spend min. $80* and redeem a Golden Village movie ticket (worth $11.50)!</p><p><strong>PLUS! BONUS 1,000 Rewards+ Points</strong><br>When you spend at least $10 at participating F&amp;B shops on B1 as part of your $80* total spend.</p><p>List of participating B1 F&amp;B shops:</p><ul><li>Boost Juice</li><li>Edith Patisserie</li><li>Fun Toast</li><li>GOPIZZA</li><li>Kei Kaisendon</li><li>Maki-san</li><li>Ninja Mama</li><li>Pancake King &amp; Kopi</li><li>Pita Tree Kebabs</li><li>Rollgaadi</li><li>SG Hawker</li><li>Tea Pulse</li><li>The Fish &amp; Chips Shop</li><li>Toriten</li><li>Typhoon Caf\u00e9</li><li>Yum Yum Thai</li></ul><p><strong>SAFRA Exclusive</strong><br>Present your SAFRA membership card and redeem a FREE i12 Katong umbrella with a min. spend of $80*.</p><p>*Max. of 3 same-day receipts. Valid from Monday - Thursday only. Double spending required for supermarket and enrichment centres. Limited to the first 500 redemptions. Limited to 1 redemption per member per day. Redemptions must be made at the Concierge at Level 3. Other <a href=\"https://shorturl.at/ixHVL\" target=\"_blank\" rel=\"noopener noreferrer\">Terms &amp; Conditions </a>apply.</p>"}}}
         The JSON output should be:
         {{
             "keywords": [
+                "deals",
+                "deal",
+                "promo",
+                "promos",
+                "promotion",
+                "promotions",
                 "weekday specials",
                 "events",
                 "weekday",
                 "deals",
                 "bonus",
                 "specials",
-                "lc 2030cnt"
+                "lc 2030cnt",
+                "food and beverages"
+                "food and beverage",
+                "food&beverages",
+                "food&beverage",
+                "food & beverage",
+                "food & beverages",
+                "fnb",
+                "f&b"
             ],
         }}
         Make sure the keywords are properly formatted and case-sensitive to match potential search queries. Make sure only return json
@@ -277,13 +291,12 @@ class KeywordGenerator:
                 else:
                     raise Exception(f"API Error: {str(e)}")
 
-    async def generate_keywords(self, input_text: str, phone_number: str) -> str:
+    async def generate_keywords(self, input_text: str, phone_number: str, model_name: str) -> str:
         if input_text == "":
             input_text = "generate_keywords"
         
         prompt = f"""
-        Session: {phone_number}
-
+        Category: {model_name}
         {input_text}
         """
 
