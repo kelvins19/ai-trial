@@ -1,5 +1,5 @@
 import requests
-from constants import BASE_URL, PATHS
+from constants import BASE_URL, PATHS, STAGING_INDEX_NAME, LOCAL_INDEX_NAME
 import json
 from db.pinecone_db import store_embeddings_in_pinecone, store_embeddings_in_pinecone_chunkjson
 import asyncio
@@ -62,7 +62,8 @@ async def main():
         print(f"Context retrieved for {model_name}")
         print(f"Data {datas}")
         
-        index_name = "i12katong-strapi-json"
+        index_name = STAGING_INDEX_NAME
+        index_name = LOCAL_INDEX_NAME
         await store_embeddings_in_pinecone_chunkjson(index_name, datas, model_name)
 
 if __name__ == "__main__":
