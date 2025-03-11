@@ -32,7 +32,10 @@ def normalize_data(data):
         
         # Extract photos.url if photos exist
         if 'photos' in item and isinstance(item['photos'], list):
-            normalized_item['photos'] = [photo['url'] for photo in item['photos'] if 'url' in photo]
+            photos_urls = [photo['url'] for photo in item['photos'] if 'url' in photo]
+            normalized_item = {k: v for k, v in sorted(normalized_item.items(), key=lambda x: (x[0] not in ['id', 'title', 'body'], x[0]))}
+            normalized_item = {k: v for k, v in normalized_item.items() if k != 'photos'}
+            normalized_item = {**{k: normalized_item[k] for k in ['id', 'title'] if k in normalized_item}, 'photos': photos_urls, **{k: normalized_item[k] for k in normalized_item if k not in ['id', 'title']}}
 
         normalized_data.append(normalized_item)
 
@@ -57,7 +60,7 @@ async def main():
     for model_name in PATHS.keys():
         datas = get_data_from_api(model_name)
         print(f"Context retrieved for {model_name}")
-        # print(f"Data {datas}")
+        print(f"Data {datas}")
         
         index_name = "i12katong-strapi-json"
         await store_embeddings_in_pinecone_chunkjson(index_name, datas, model_name)
