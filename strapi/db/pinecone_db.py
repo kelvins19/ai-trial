@@ -9,8 +9,8 @@ from langchain.text_splitter import MarkdownTextSplitter, RecursiveJsonSplitter,
 from .db import upsert_docstore_in_db
 import json
 from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
-import numpy as np
-from strapi_rag import KeywordGenerator, SummaryGenerator
+from constants import STRAPI_KEYWORD_GENERATOR_PROMPT_1, STRAPI_SUMMARY_GENERATOR_PROMPT
+from strapi_keyword_summary_generator import query_formatter
 
 load_dotenv()
 api_key = os.getenv("PINECONE_API_KEY")
@@ -31,7 +31,15 @@ def create_index_if_not_exists(index_name: str, dimension: int):
             cloud="aws",
             region="us-east-1"
         )
-        pc.create_index(index_name, spec, dimension=dimension)
+        # pc.create_index(index_name, spec, vector_type=VectorType.SPARSE, metric=Metric.DOTPRODUCT)
+        pc.create_index_for_model(index_name, 
+                        cloud="aws",
+                        region="us-east-1", 
+                        embed={
+                            "model":"pinecone-sparse-english-v0",
+                            "field_map":{"text": "chunk_text"}
+                        },
+                        )
 
 def format_json_to_markdown(json_data) -> str:
     def format_dict(d, indent=0):
@@ -75,6 +83,43 @@ def chunk_json_data_text(json_data):
     chunks = splitter.split_text(json_data)
     return chunks
 
+def search_data_in_pinecone_sparse(index_name: str, query: str, k: int =20):
+    embeddings = pc.inference.embed(
+                model="pinecone-sparse-english-v0",
+                inputs=query,
+                parameters={"input_type": "query"}
+            )
+    print(f"Embeddings {embeddings}")
+    sparse_values = embeddings.data[0]['sparse_values']
+    sparse_indices = embeddings.data[0]['sparse_indices']
+
+    index = pc.Index(index_name)
+    retrieved_docs = index.query(
+            namespace="",
+            sparse_vector={
+                "values": sparse_values,
+                "indices": sparse_indices
+            },
+            top_k=k,
+            include_metadata=True,
+            include_values=False
+        )
+    
+    return retrieved_docs
+
+def search_data_in_pinecone(index_name: str, query: str, k: int = 20): 
+    index = pc.Index(index_name)
+    retrieved_docs = index.search_records(
+            namespace="", 
+            query={
+                "inputs": {"text": query}, 
+                "top_k": k
+            },
+            fields=["summary", "keywords", "chunk_text"]
+        )
+    
+    return retrieved_docs
+
 def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], model_name: str):
     print(f"Storing {model_name} embeddings in Pinecone index {index_name}")
     dimension = 768
@@ -112,59 +157,51 @@ def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], model_na
     if vectors:
         index.upsert(vectors)
 
+def escape_curly_brackets(text: str) -> str:
+    return text.replace("{", "{{").replace("}", "}}")
+
 async def store_embeddings_in_pinecone_chunkjson(index_name: str, data: Dict[str, str], model_name: str):
     print(f"Storing {model_name} embeddings in Pinecone index {index_name}")
-    dimension = 768
+    dimension = 1024
     create_index_if_not_exists(index_name, dimension=dimension)
     index = pc.Index(index_name)
     vectors = []
-    max_metadata_size = 1024  
-
-    # Initialize the KeywordGenerator
-    keyword_generator = KeywordGenerator(
-        model_name=os.getenv("OPENAI_MODEL_NAME"),
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_BASE_URL"),
-        prompt=""
-    )
-
-    # Initialize the SummaryGenerator
-    sumamry_generator = SummaryGenerator(
-        model_name=os.getenv("OPENAI_MODEL_NAME"),
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url=os.getenv("OPENAI_BASE_URL"),
-        prompt=""
-    )
 
     # Ensure data is a JSON string
     json_data = json.dumps(data)
     chunks = chunk_json_data_text(json_data)
 
     for i, chunk in enumerate(chunks):
+        chunk = escape_curly_brackets(chunk)
         try:
-            embedding = model.embed_query(chunk)
-            embedding = [float(x) for x in embedding]
+            # embedding = model.embed_query(chunk)
+            embeddings = pc.inference.embed(
+                model="pinecone-sparse-english-v0",
+                inputs=chunk,
+                parameters={"input_type": "passage", "truncate": "END"}
+            )
+            # print(f"Embeddings {embeddings}")
+            sparse_values = embeddings.data[0]['sparse_values']
+            sparse_indices = embeddings.data[0]['sparse_indices']
 
-            if len(chunk.encode('utf-8')) > 40960:
-                print(f"Chunk {chunk}")
-                print(f"Chunk size exceeds the limit: {len(chunk.encode('utf-8'))} bytes")
-                continue
+            doc_id = f"{model_name}_chunk_{i}_json_sparse"
 
-            if len(embedding) != dimension:
-                print(f"Embedding dimension mismatch: expected {dimension}, got {len(embedding)}")
-                continue
+            prompt = f"""
+            Category: {model_name}
+            {chunk}
+            """
 
-            doc_id = f"{model_name}_chunk_{i}_json"
+            expected_json = query_formatter(prompt, STRAPI_KEYWORD_GENERATOR_PROMPT_1)
+            keywords = json.loads(expected_json).get("keywords", [])
 
-            # Generate keywords for the chunk
-            keyword_response = await keyword_generator.generate_keywords(input_text=chunk, phone_number="1234567890", model_name=model_name)
-            keywords = json.loads(keyword_response).get("keywords", [])
-
-            summary_response = await sumamry_generator.generate_summary(input_text=chunk, phone_number="123456789")
+            print(f"Generated keyword for chunk {i} model {model_name}: {keywords}")
+            
+            summary_response = query_formatter(chunk, STRAPI_SUMMARY_GENERATOR_PROMPT)
 
             vectors.append({
                 "id": doc_id, 
-                "values": embedding, 
+                "sparse_values": {"indices": sparse_indices, "values": sparse_values}, 
+                # "values": values,
                 "metadata": {
                     "doc_id": doc_id, 
                     "doc_type": "text", 
@@ -174,6 +211,12 @@ async def store_embeddings_in_pinecone_chunkjson(index_name: str, data: Dict[str
                     "keywords": keywords
                 }
             })
+
+            # Store the JSON data and raw chunk to a .txt file
+            # with open(f"{doc_id}.txt", "w") as file:
+            #     file.write(f"Raw Chunk:\n{chunk}\n\n")
+            #     json.dump(vectors[-1], file, indent=4)
+
             # Upsert plaintext content to local DB
             upsert_docstore_in_db(doc_id, chunk)
         except Exception as e:
@@ -181,3 +224,4 @@ async def store_embeddings_in_pinecone_chunkjson(index_name: str, data: Dict[str
 
     if vectors:
         index.upsert(vectors)
+

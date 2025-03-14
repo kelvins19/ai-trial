@@ -1,7 +1,7 @@
 import requests
 from constants import BASE_URL, PATHS, STAGING_INDEX_NAME, LOCAL_INDEX_NAME
 import json
-from db.pinecone_db import store_embeddings_in_pinecone, store_embeddings_in_pinecone_chunkjson
+from db.pinecone_db import search_data_in_pinecone, store_embeddings_in_pinecone_chunkjson, search_data_in_pinecone_sparse
 import asyncio
 from bs4 import BeautifulSoup
 
@@ -60,11 +60,20 @@ async def main():
     for model_name in PATHS.keys():
         datas = get_data_from_api(model_name)
         print(f"Context retrieved for {model_name}")
-        print(f"Data {datas}")
+        # print(f"Data {datas}")
+        
+        # Store the datas to .txt for each model_name
+        # with open(f"{model_name}_data.txt", "w") as file:
+        #     for data in datas:
+        #         file.write(json.dumps(data) + "\n")
         
         index_name = STAGING_INDEX_NAME
         index_name = LOCAL_INDEX_NAME
+        index_name = "i12katong-strapi-sparse"
         await store_embeddings_in_pinecone_chunkjson(index_name, datas, model_name)
+
+        # resp = search_data_in_pinecone_sparse(index_name=index_name, query="participating stores in weekday dine and delight", k=20)
+        # print(f"Retrieved docs {resp}")
 
 if __name__ == "__main__":
     asyncio.run(main())
