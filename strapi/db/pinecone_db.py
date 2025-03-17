@@ -232,3 +232,102 @@ async def store_embeddings_in_pinecone_chunkjson(index_name: str, data: Dict[str
     if vectors:
         index.upsert(vectors)
 
+
+async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[str, str], model_name: str):
+    print(f"Storing {model_name} embeddings in Pinecone index {index_name}")
+    dimension = 1024
+    create_index_if_not_exists(index_name, dimension=dimension)
+    index = pc.Index(index_name)
+    vectors = []
+
+    for item in data:
+        item_id = item.get("id", "")
+        title = item.get("title", "")
+        photos = item.get("photos", [])
+        event_date = item.get("event_date", "")
+        location = item.get("location", "")
+        body = item.get("body", "")
+        time = item.get("time", "")
+        name = item.get("name", "")
+        contact_number = item.get("contact_number", "")
+        opening_hours = item.get("opening_hours", "")
+        website = item.get("website", "")
+        category = item.get("category", "")
+
+        if model_name in ["event", "deal"]:
+            content = f"Title: {title}\nImage URL: {photos[0] if photos else ''}\nDate: {event_date} {time}\nLocation: {location}\n{body}"
+        elif model_name == "store":
+            content = f"Store: {name}\nLocation: {location}\nContact: {contact_number}\nOpening Hours: {opening_hours}\nWebsite: {website}\nCategory: {category}\n{body}"
+        else:
+            content = ""
+            for key, value in item.items():
+                if key == "id":
+                    continue
+                content += f"{key.replace('_', ' ').title()}: {value}\n"
+
+        chunks = chunk_json_data_text(content)
+
+        for i, chunk in enumerate(chunks):
+            chunk = escape_curly_brackets(chunk)
+            try:
+                embeddings = pc.inference.embed(
+                    model="pinecone-sparse-english-v0",
+                    inputs=chunk,
+                    parameters={"input_type": "passage", "truncate": "END"}
+                )
+                sparse_values = embeddings.data[0]['sparse_values']
+                sparse_indices = embeddings.data[0]['sparse_indices']
+
+                doc_id = f"{model_name}_{item_id}_chunk_{i}_json"
+
+                prompt = f"""
+                Category: {model_name}
+                {chunk}
+                """
+
+                expected_json = query_formatter(prompt, STRAPI_KEYWORD_GENERATOR_PROMPT_1)
+                keywords = json.loads(expected_json).get("keywords", [])
+
+                print(f"Generated keyword for chunk {i} model {model_name}: {keywords}")
+                
+                summary_response = query_formatter(chunk, STRAPI_SUMMARY_GENERATOR_PROMPT)
+
+                metadata = {
+                    "doc_id": doc_id, 
+                    "doc_type": "text", 
+                    "filename": doc_id, 
+                    "summary": summary_response, 
+                    "page_number": 1,
+                    "keywords": keywords,
+                    "category": model_name
+                }
+
+                if model_name in ["event", "deal"]:
+                    metadata.update({
+                        "event_date": event_date or "",
+                        "location": location or ""
+                    })
+                elif model_name == "store":
+                    metadata.update({
+                        "type": category or "",
+                        "location": location or ""
+                    })
+
+                vectors.append({
+                    "id": doc_id, 
+                    "sparse_values": {"indices": sparse_indices, "values": sparse_values}, 
+                    "metadata": metadata
+                })
+
+                # Store the JSON data and raw chunk to a .txt file
+                with open(f"{doc_id}.txt", "w") as file:
+                    file.write(f"Raw Chunk:\n{chunk}\n\n")
+                    json.dump(vectors[-1], file, indent=4)
+
+                upsert_docstore_in_db(doc_id, chunk)
+            except Exception as e:
+                print(f"Error processing chunk {i}: {e}")
+
+    if vectors:
+        print(f"Upserting {len(vectors)} vectors")
+        index.upsert(vectors)
