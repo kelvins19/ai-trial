@@ -11,6 +11,7 @@ import json
 from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 from constants import STRAPI_KEYWORD_GENERATOR_PROMPT_1, STRAPI_SUMMARY_GENERATOR_PROMPT
 from strapi_keyword_summary_generator import query_formatter
+import datetime
 
 load_dotenv()
 api_key = os.getenv("PINECONE_API_KEY")
@@ -84,15 +85,19 @@ def chunk_json_data_text(json_data):
     return chunks
 
 def search_data_in_pinecone_sparse(index_name: str, query: str, k: int =20):
+    start_time = datetime.datetime.now()
     embeddings = pc.inference.embed(
                 model="pinecone-sparse-english-v0",
                 inputs=query,
                 parameters={"input_type": "query"}
             )
-    print(f"Embeddings {embeddings}")
+    # print(f"Embeddings {embeddings}")
     sparse_values = embeddings.data[0]['sparse_values']
     sparse_indices = embeddings.data[0]['sparse_indices']
+    end_time = datetime.datetime.now()
+    print(f"Time taken for convert to vector: {end_time - start_time} seconds")
 
+    start_time = datetime.datetime.now()
     index = pc.Index(index_name)
     retrieved_docs = index.query(
             namespace="",
@@ -105,6 +110,8 @@ def search_data_in_pinecone_sparse(index_name: str, query: str, k: int =20):
             include_values=False
         )
     
+    end_time = datetime.datetime.now()
+    print(f"Time taken for retrieval from pinecone: {end_time - start_time} seconds")
     return retrieved_docs
 
 def search_data_in_pinecone(index_name: str, query: str, k: int = 20): 

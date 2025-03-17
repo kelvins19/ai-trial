@@ -59,7 +59,7 @@ def get_data_from_api(model_name):
 async def main():
     for model_name in PATHS.keys():
         datas = get_data_from_api(model_name)
-        print(f"Context retrieved for {model_name}")
+        # print(f"Context retrieved for {model_name}")
         # print(f"Data {datas}")
         
         # Store the datas to .txt for each model_name
@@ -70,9 +70,9 @@ async def main():
         index_name = STAGING_INDEX_NAME
         index_name = LOCAL_INDEX_NAME
         index_name = "i12katong-strapi-sparse"
-        await store_embeddings_in_pinecone_chunkjson(index_name, datas, model_name)
+        # await store_embeddings_in_pinecone_chunkjson(index_name, datas, model_name)
 
-        # resp = search_data_in_pinecone_sparse(index_name=index_name, query="participating stores in weekday dine and delight", k=20)
+        resp = search_data_in_pinecone_sparse(index_name=index_name, query="participating stores in weekday dine and delight", k=20)
         # print(f"Retrieved docs {resp}")
 
 if __name__ == "__main__":
