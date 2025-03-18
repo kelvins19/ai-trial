@@ -1,7 +1,7 @@
 import requests
 from constants import BASE_URL, PATHS, STAGING_INDEX_NAME, LOCAL_INDEX_NAME
 import json
-from db.pinecone_db import search_data_in_pinecone, store_embeddings_in_pinecone_chunkjson, search_data_in_pinecone_sparse
+from db.pinecone_db import search_data_in_pinecone, store_embeddings_in_pinecone_chunkjson, search_data_in_pinecone_sparse, store_embeddings_in_pinecone_chunkjson_v2
 import asyncio
 from bs4 import BeautifulSoup
 
@@ -69,10 +69,10 @@ async def main():
         
         index_name = STAGING_INDEX_NAME
         index_name = LOCAL_INDEX_NAME
-        index_name = "i12katong-strapi-sparse"
-        # await store_embeddings_in_pinecone_chunkjson(index_name, datas, model_name)
+        index_name = "i12katong-strapi-sparse-v2"
+        await store_embeddings_in_pinecone_chunkjson_v2(index_name, datas, model_name)
 
-        resp = search_data_in_pinecone_sparse(index_name=index_name, query="participating stores in weekday dine and delight", k=20)
+        # resp = search_data_in_pinecone_sparse(index_name=index_name, query="participating stores in weekday dine and delight", k=20)
         # print(f"Retrieved docs {resp}")
 
 if __name__ == "__main__":

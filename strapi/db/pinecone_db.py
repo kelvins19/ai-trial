@@ -9,9 +9,10 @@ from langchain.text_splitter import MarkdownTextSplitter, RecursiveJsonSplitter,
 from .db import upsert_docstore_in_db
 import json
 from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
-from constants import STRAPI_KEYWORD_GENERATOR_PROMPT_1, STRAPI_SUMMARY_GENERATOR_PROMPT
+from constants import STRAPI_KEYWORD_GENERATOR_PROMPT_1, STRAPI_SUMMARY_GENERATOR_PROMPT, STRAPI_SUMMARY_AND_DATE_GENERATOR_PROMPT
 from strapi_keyword_summary_generator import query_formatter
 import datetime
+from utils.parser import parse_event_dates
 
 load_dotenv()
 api_key = os.getenv("PINECONE_API_KEY")
@@ -254,6 +255,8 @@ async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[
         website = item.get("website", "")
         category = item.get("category", "")
 
+        event_dates = parse_event_dates(event_date)
+
         if model_name in ["event", "deal"]:
             content = f"Title: {title}\nImage URL: {photos[0] if photos else ''}\nDate: {event_date} {time}\nLocation: {location}\n{body}"
         elif model_name == "store":
@@ -290,13 +293,23 @@ async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[
 
                 print(f"Generated keyword for chunk {i} model {model_name}: {keywords}")
                 
-                summary_response = query_formatter(chunk, STRAPI_SUMMARY_GENERATOR_PROMPT)
+                
+                input = f"""
+                Event Date: {event_date}
+                Body: {prompt}
+                """
+                summary_date_response = query_formatter(input, STRAPI_SUMMARY_AND_DATE_GENERATOR_PROMPT)
+                summary_date_response = json.loads(summary_date_response)
+                print(f"Summary Date Response {summary_date_response}")
+                summary = summary_date_response.get("summary", "")
+                start_date = summary_date_response.get("start_date", event_dates["start_date"])
+                end_date = summary_date_response.get("end_date", event_dates["end_date"])
 
                 metadata = {
                     "doc_id": doc_id, 
                     "doc_type": "text", 
                     "filename": doc_id, 
-                    "summary": summary_response, 
+                    "summary": summary, 
                     "page_number": 1,
                     "keywords": keywords,
                     "category": model_name
@@ -305,6 +318,8 @@ async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[
                 if model_name in ["event", "deal"]:
                     metadata.update({
                         "event_date": event_date or "",
+                        "start_date": start_date,
+                        "end_date": end_date,
                         "location": location or ""
                     })
                 elif model_name == "store":
@@ -320,7 +335,7 @@ async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[
                 })
 
                 # Store the JSON data and raw chunk to a .txt file
-                with open(f"{doc_id}.txt", "w") as file:
+                with open(f"event_pinecone_data/{doc_id}.txt", "w") as file:
                     file.write(f"Raw Chunk:\n{chunk}\n\n")
                     json.dump(vectors[-1], file, indent=4)
 
