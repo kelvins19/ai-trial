@@ -1,9 +1,14 @@
 import requests
 from constants import BASE_URL, PATHS, STAGING_INDEX_NAME, LOCAL_INDEX_NAME
 import json
-from db.pinecone_db import search_data_in_pinecone, store_embeddings_in_pinecone_chunkjson, search_data_in_pinecone_sparse, store_embeddings_in_pinecone_chunkjson_v2
+from db.pinecone_db import search_data_in_pinecone, store_embeddings_in_pinecone_chunkjson, search_data_in_pinecone_sparse, store_embeddings_in_pinecone_chunkjson_v2, search_promos_for_this_week
+from db.pinecone_db_sparse_dense import search_data_in_pinecone_hybrid, store_embeddings_in_pinecone_chunkjson_v2_hybrid, search_promos_by_date_range, determine_query
 import asyncio
 from bs4 import BeautifulSoup
+from bs4 import MarkupResemblesLocatorWarning
+import warnings
+
+warnings.filterwarnings("ignore", category=MarkupResemblesLocatorWarning)
 
 def strip_html_tags(text):
     return BeautifulSoup(text, "html.parser").get_text()
@@ -70,10 +75,50 @@ async def main():
         index_name = STAGING_INDEX_NAME
         index_name = LOCAL_INDEX_NAME
         index_name = "i12katong-strapi-sparse-v2"
-        await store_embeddings_in_pinecone_chunkjson_v2(index_name, datas, model_name)
+        # await store_embeddings_in_pinecone_chunkjson_v2(index_name, datas, model_name)
 
-        # resp = search_data_in_pinecone_sparse(index_name=index_name, query="participating stores in weekday dine and delight", k=20)
-        # print(f"Retrieved docs {resp}")
+        query = "show me promo for this week only"
+        # query = "where is ippudo located?"
+        # query="any promo for this week?"
+        resp = search_data_in_pinecone_sparse(index_name=index_name, query=query, k=20)
+        print(f"Retrieved docs {resp}")
+
+
+        # Example usage
+        # query = "show me promo for this week only"
+        # query = "where is ippudo located?"
+        # resp = determine_query(query)
+        # print(f"Determined query {resp}")
+        # this_week_promos = search_promos_for_this_week(index_name, query)
+
+        # # Display results
+        # for i, promo in enumerate(this_week_promos, 1):
+        #     print(f"\n--- Promo {i} ---")
+        #     print(f"Score: {promo['score']}")
+        #     print(f"ID: {promo['id']}")
+        #     print(f"Summary: {promo['summary']}")
+        #     print(f"Location: {promo['location']}")
+        #     print(f"Event Date: {promo['event_date']}")
+        #     print(f"Keywords: {', '.join(promo['keywords'])}")
+
+        # With custom alpha weighting (more weight to sparse/keyword matching)
+        # results = search_promos_by_date_range(
+        #     index_name=index_name, 
+        #     query="any promo for june?",
+        #     # date_range="2025-03-17 to 2025-03-23",
+        #     date_range=None,
+        #     k=50,
+        #     alpha=0.7  # More emphasis on keyword matching
+        # )
+
+        # # Display results
+        # for i, promo in enumerate(results, 1):
+        #     print(f"\n--- Result {i} ---")
+        #     print(f"ID: {promo['id']}")
+        #     print(f"Score: {promo['score']}")
+        #     print(f"Summary: {promo['summary']}")
+        #     print(f"Location: {promo['location']}")
+        #     print(f"Event Date: {promo['event_date']}")
 
 if __name__ == "__main__":
     asyncio.run(main())

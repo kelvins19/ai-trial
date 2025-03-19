@@ -9,13 +9,14 @@ from langchain.text_splitter import MarkdownTextSplitter, RecursiveJsonSplitter,
 from .db import upsert_docstore_in_db
 import json
 from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
-from constants import STRAPI_KEYWORD_GENERATOR_PROMPT_1, STRAPI_SUMMARY_GENERATOR_PROMPT, STRAPI_SUMMARY_AND_DATE_GENERATOR_PROMPT
+from constants import STRAPI_KEYWORD_GENERATOR_PROMPT_1, STRAPI_SUMMARY_GENERATOR_PROMPT, STRAPI_SUMMARY_AND_DATE_GENERATOR_PROMPT, STRAPI_QUERY_DETECTOR_PROMPT, STRAPI_QUERY_DETECTOR_PROMPT_V2
 from strapi_keyword_summary_generator import query_formatter
 import datetime
 from utils.parser import parse_event_dates
 
 load_dotenv()
 api_key = os.getenv("PINECONE_API_KEY")
+print(f"Pinecone Api key {api_key}")
 model_name = os.getenv("EMBEDDING_MODEL_NAME", "sentence-transformers/all-mpnet-base-v2")
 embed_access_key = "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"
 
@@ -98,6 +99,33 @@ def search_data_in_pinecone_sparse(index_name: str, query: str, k: int =20):
     end_time = datetime.datetime.now()
     print(f"Time taken for convert to vector: {end_time - start_time} seconds")
 
+    determined_query = determine_query(query, True)
+    print(f"Determined query: {determined_query}")
+    
+    # Get date filters if it's an event/deal query
+    keywords = determined_query.get("keywords", [])
+    is_event_deal_query = determined_query.get("is_event_deal_query", False)
+    start_date = determined_query.get("start_date", 0)
+    end_date = determined_query.get("end_date", 0)
+    
+    # Prepare Pinecone filter if we have date criteria
+    filter_dict = {
+            "$and": [
+                {"keywords": {"$in": keywords}}
+            ]
+        }
+    if is_event_deal_query and start_date > 0 and end_date > 0:
+        print(f"Filtering results by date range: {datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d')} to {datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d')}")
+        filter_dict = {
+            "$and": [
+                {"keywords": {"$in": keywords}},
+                {"category": {"$in": ["deal", "event"]}},
+                {"start_date": {"$lte": end_date}},
+                {"end_date": {"$gte": start_date}}
+            ]
+        }
+        print(f"Using filter: {filter_dict}")
+
     start_time = datetime.datetime.now()
     index = pc.Index(index_name)
     retrieved_docs = index.query(
@@ -108,11 +136,43 @@ def search_data_in_pinecone_sparse(index_name: str, query: str, k: int =20):
             },
             top_k=k,
             include_metadata=True,
-            include_values=False
+            include_values=False,
+            filter=filter_dict
         )
     
     end_time = datetime.datetime.now()
     print(f"Time taken for retrieval from pinecone: {end_time - start_time} seconds")
+    
+    # If we've filtered at query time, we don't need to post-process
+    # But keeping the code for backward compatibility
+    if is_event_deal_query and start_date > 0 and end_date > 0 and filter_dict is None:
+        filtered_results = []
+        for match in retrieved_docs.matches:
+            metadata = match.metadata
+            # Check if it's a deal/promo or event
+            if metadata.get("category") in ["deal", "event"]:
+                # Get date information
+                item_start_date = metadata.get("start_date")
+                item_end_date = metadata.get("end_date")
+                
+                # Check if the item is active during the requested date range
+                if item_start_date and item_end_date:
+                    # Item must start before end of requested period and end after start of requested period
+                    if int(item_start_date) <= end_date and int(item_end_date) >= start_date:
+                        filtered_results.append(match)
+        
+        # Create a new response with filtered matches
+        if hasattr(retrieved_docs, "_replace"):
+            # If retrieved_docs is a namedtuple (which is common in Pinecone's response)
+            filtered_docs = retrieved_docs._replace(matches=filtered_results)
+            print(f"Filtered from {len(retrieved_docs.matches)} to {len(filtered_results)} results")
+            return filtered_docs
+        else:
+            # Alternative fallback if the response structure is different
+            retrieved_docs.matches = filtered_results
+            print(f"Filtered from {len(retrieved_docs.matches)} to {len(filtered_results)} results")
+            return retrieved_docs
+    
     return retrieved_docs
 
 def search_data_in_pinecone(index_name: str, query: str, k: int = 20): 
@@ -346,3 +406,96 @@ async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[
     if vectors:
         print(f"Upserting {len(vectors)} vectors")
         index.upsert(vectors)
+
+def search_promos_for_this_week(index_name: str, query: str, k: int = 50):
+    """
+    Search for promos/deals that are active during the current week.
+    
+    Args:
+        index_name: Name of the Pinecone index
+        query: User query (e.g., "show me promo for this week only")
+        k: Maximum number of results to retrieve initially
+    
+    Returns:
+        List of deals that match both the query and are active this week
+    """
+    import datetime
+    
+    # First, clean the query to focus on the promo content
+    # Remove the time-specific parts like "for this week only"
+    search_query = query.replace("for this week only", "").replace("show me", "").strip()
+    if not search_query:
+        search_query = "promotion deal discount"  # Default search if query is too generic
+        
+    # Get current date information
+    today = datetime.datetime.now()
+    # Calculate start of week (Monday)
+    start_of_week = today - datetime.timedelta(days=today.weekday())
+    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Calculate end of week (Sunday)
+    end_of_week = start_of_week + datetime.timedelta(days=6, hours=23, minutes=59, seconds=59)
+    
+    # Convert to Unix timestamps
+    start_timestamp = int(start_of_week.timestamp())
+    end_timestamp = int(end_of_week.timestamp())
+    
+    print(f"Searching for: '{search_query}'")
+    print(f"Date range: {start_of_week.strftime('%Y-%m-%d')} to {end_of_week.strftime('%Y-%m-%d')}")
+    
+    # Search Pinecone using sparse vectors
+    search_results = search_data_in_pinecone_sparse(index_name, search_query, k=k)
+    
+    # Filter results by date
+    filtered_results = []
+    for match in search_results.matches:
+        metadata = match.metadata
+        # Check if it's a deal/promo
+        if metadata.get("category") == "deal":
+            # Get date information
+            start_date = metadata.get("start_date")
+            end_date = metadata.get("end_date")
+            
+            # Check if the promo is active during this week
+            if start_date and end_date:
+                # Promo must start before end of week and end after start of week
+                if int(start_date) <= end_timestamp and int(end_date) >= start_timestamp:
+                    filtered_results.append({
+                        "score": match.score,
+                        "id": match.id,
+                        "summary": metadata.get("summary", ""),
+                        "location": metadata.get("location", ""),
+                        "event_date": metadata.get("event_date", ""),
+                        "keywords": metadata.get("keywords", [])
+                    })
+    
+    print(f"Found {len(filtered_results)} promos active this week")
+    return filtered_results
+
+
+def determine_query(query: str, use_v2: bool = False):
+    """
+    Determine the intent of a user query and extract relevant date filters and keywords.
+    
+    Args:
+        query: User query text
+        use_v2: Whether to use the enhanced V2 prompt that also returns keywords
+        
+    Returns:
+        Dictionary with query analysis including:
+        - is_event_deal_query: Whether query is about events/deals
+        - start_date: Unix timestamp for start date (or 0 if not applicable)
+        - end_date: Unix timestamp for end date (or 0 if not applicable)
+        - keywords: List of relevant keywords (only if use_v2=True)
+    """
+    start_time = datetime.datetime.now()
+
+    # Choose which prompt to use
+    prompt = STRAPI_QUERY_DETECTOR_PROMPT_V2 if use_v2 else STRAPI_QUERY_DETECTOR_PROMPT
+    
+    query_response = query_formatter(query, prompt)
+    print(f"Query response {query_response}")
+    query_response = json.loads(query_response)
+
+    end_time = datetime.datetime.now()
+    print(f"Time taken for determining query type: {end_time - start_time} seconds")
+    return query_response
