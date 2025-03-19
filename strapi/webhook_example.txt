@@ -22,3 +22,6 @@
     "strapi_assignee": ""
   }
 }
+
+1 Query to Pinecone with top_k = 20 (6 RU)
+Embeddings with model pinecone-sparse-english-v0 (10 tokens)

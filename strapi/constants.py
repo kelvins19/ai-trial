@@ -1,9 +1,9 @@
 BASE_URL = "https://cms.bistrobytes.com.sg/api"
 PATHS = {
     # "article": "/articles",
-    # "event": "/events",
-    "store": "/stores",
-    # "deal": "/deals",
+    "event": "/events",
+    # "store": "/stores",
+    "deal": "/deals",
     # "reward": "/rewards",
     # "config-contact-us": '/config-contact-us',
     # "config-about-us": '/config-about-us',
@@ -73,32 +73,58 @@ STRAPI_SUMMARY_GENERATOR_PROMPT = """You are an assistant tasked with identifyin
 STRAPI_DATE_GENERATOR_PROMPT = """
 You are an assistant tasked with identifying the start and end dates from an event date string. 
 Your task is to parse the given event date string and generate the start_date and end_date as Unix timestamps.
-If the start_date cannot be detected, use today's date. If the end_date cannot be detected, use the end of the year date.
+
+IMPORTANT: Always use the CURRENT DATE to calculate Unix timestamps. Do not use dates from the examples.
+If the start_date cannot be detected from the text, use TODAY's current date (not a past date).
+If the end_date cannot be detected from the text, use the end of the CURRENT year.
+
+Follow these steps:
+1. Carefully extract date information from the event date string
+2. If explicit dates are mentioned (like "15 March 2025"), use those exact dates
+3. If no dates are mentioned or dates are unclear, use TODAY's date for start_date and end of CURRENT year for end_date
+4. Convert extracted dates to Unix timestamps using the current timezone
+
 Return the output in JSON format as follows:
-{{
-    "start_date": UNIX,
-    "end_date": UNIX
-}}
+{
+    "start_date": UNIX_TIMESTAMP_FOR_START_DATE,
+    "end_date": UNIX_TIMESTAMP_FOR_END_DATE
+}
+
 Ensure the timestamps are accurate and represent the correct start and end dates of the event.
 Example Input: "17 Feb - 27 Mar 2025 (Monday-Thursday)"
 Example Output:
-{{
+{
     "start_date": 1734566400,
     "end_date": 1740393600
-}}
+}
+
+NOTE: This example uses dates from 2025, but if you're parsing a date TODAY and don't find explicit dates, use TODAY's date.
+Always calculate Unix timestamps based on the CURRENT time, not the time from examples.
 """
 
 STRAPI_SUMMARY_AND_DATE_GENERATOR_PROMPT = """
 You are an assistant tasked with identifying contents from a given query. 
 Your task is to generate a summary of the given query in a human-readable format with a maximum of 500 characters, 
 and to parse the given event date string to generate the start_date and end_date as Unix timestamps.
-If the start_date cannot be detected, use today's date. If the end_date cannot be detected, use the end of the year date.
+
+IMPORTANT: Always use the CURRENT DATE to calculate Unix timestamps. Do not use dates from the examples.
+If the start_date cannot be detected from the Event Date text, use TODAY's current date (not a past date).
+If the end_date cannot be detected from the Event Date text, use the end of the CURRENT year.
+
+Follow these steps:
+1. First, generate a concise summary of the Body content in 500 characters or less
+2. Second, carefully extract date information from the Event Date field
+3. If explicit dates are mentioned (like "15 March 2025"), use those exact dates
+4. If no dates are mentioned or dates are unclear, use TODAY's date for start_date and end of CURRENT year for end_date
+5. Convert extracted dates to Unix timestamps using the current timezone
+
 Return the output in JSON format as follows:
 {{
     "summary": "SUMMARY",
-    "start_date": UNIX,
-    "end_date": UNIX
+    "start_date": UNIX_TIMESTAMP_FOR_START_DATE,
+    "end_date": UNIX_TIMESTAMP_FOR_END_DATE
 }}
+
 Ensure the timestamps are accurate and represent the correct start and end dates of the event.
 Example Input: 
 
@@ -111,6 +137,9 @@ Example Output:
     "start_date": 1734566400,
     "end_date": 1740393600
 }}
+
+NOTE: This example uses dates from 2025, but if you're parsing a query TODAY and don't find explicit dates, use TODAY's date.
+Always calculate Unix timestamps based on the CURRENT time, not the time from examples.
 """
 
 STRAPI_QUERY_DETECTOR_PROMPT = """
@@ -134,6 +163,12 @@ Follow these guidelines:
    - "what is rewards+?" → start_date = 0, end_date = 0
    - "any ev charging here?" → start_date = 0, end_date = 0
    - "where is the mall located?" → start_date = 0, end_date = 0
+
+IMPORTANT: Always use the ACTUAL CURRENT DATE to calculate Unix timestamps. This means:
+- If today's date is June 15, 2024, use that as your reference point
+- DO NOT use dates from previous years or hardcoded dates
+- Calculate "this week", "next month", etc. relative to TODAY's date
+- Always convert to Unix timestamps using the current timezone
 
 First, determine if the query is about events/deals or not. Then, extract any time references.
 If it's about events/deals but no time is specified, use the default ranges.
@@ -173,6 +208,7 @@ Output:
     "end_date": 1716422399     
 }}
 
+CRITICAL: The timestamp values in these examples are just for illustration. You MUST calculate timestamps based on TODAY's actual date, not the dates used in these examples.
 Use today's date to calculate all time references.
 Make sure all timestamp calculations are accurate, accounting for month boundaries, leap years, etc.
 For date ranges like "this week", use Monday as the start and Sunday as the end.
@@ -204,6 +240,12 @@ Follow these guidelines for DATE DETECTION:
    - "what is rewards+?" → start_date = 0, end_date = 0
    - "any ev charging here?" → start_date = 0, end_date = 0
    - "where is the mall located?" → start_date = 0, end_date = 0
+
+IMPORTANT: Always use the ACTUAL CURRENT DATE to calculate Unix timestamps. This means:
+- If today's date is June 15, 2024, use that as your reference point
+- DO NOT use dates from previous years or hardcoded dates
+- Calculate "this week", "next month", etc. relative to TODAY's date
+- Always convert to Unix timestamps using the current timezone
 
 Follow these guidelines for KEYWORD GENERATION:
 1. For ALL queries (whether event/deal related or not), generate 5-15 relevant keywords
@@ -297,6 +339,7 @@ Output:
     ]
 }}
 
+CRITICAL: The timestamp values in these examples are just for illustration. You MUST calculate timestamps based on TODAY's actual date, not the dates used in these examples.
 Use today's date to calculate all time references.
 Make sure all timestamp calculations are accurate, accounting for month boundaries, leap years, etc.
 Ensure the keywords are diverse but relevant to the query content.

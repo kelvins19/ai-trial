@@ -1,4 +1,3 @@
-
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -6,6 +5,7 @@ from langchain_openai import ChatOpenAI
 import traceback
 import os
 from dotenv import load_dotenv
+import datetime
 
 
 load_dotenv()
@@ -17,6 +17,10 @@ def query_formatter(query, custom_prompt: str= None):
         openai_api_base=os.getenv("OPENAI_BASE_URL"),
         model_name=os.getenv("OPENAI_MODEL_NAME"),
     )
+
+    # Get today's date and add it to every prompt
+    today = datetime.datetime.now()
+    current_date_info = f"\nCURRENT DATE: {today.strftime('%Y-%m-%d')}\nCURRENT TIMESTAMP: {int(today.timestamp())}\n"
 
     query_formatter_template_lowercase = """You are an assistant tasked with identifying model number and model category of product from given query. generate keywords base on extracted information.
         I have an query text that may containing a model type, model category. Your task is to:
@@ -58,6 +62,12 @@ def query_formatter(query, custom_prompt: str= None):
         query_formatter_template_lowercase = custom_prompt
         text_q = f"{query}"
 
+    # Add current date information to every prompt
+    if custom_prompt:
+        query_formatter_template_lowercase = custom_prompt + current_date_info
+    else:
+        query_formatter_template_lowercase = query_formatter_template_lowercase + current_date_info
+
     prompt = ChatPromptTemplate.from_messages([
             {"role": "system", "content": query_formatter_template_lowercase},
             {"role": "user", "content": [
@@ -73,6 +83,7 @@ def query_formatter(query, custom_prompt: str= None):
     )
     
     try:
+        print(f"Using prompt with current date: {today.strftime('%Y-%m-%d')}")
         response = query_formatter_chain.invoke({})
         return response
     except Exception as e:

@@ -50,7 +50,7 @@ def get_data_from_api(model_name):
     if model_name not in PATHS:
         raise ValueError(f"Model name '{model_name}' is not defined in PATHS.")
     
-    url = f"{BASE_URL}{PATHS[model_name]}?populate=*"
+    url = f"{BASE_URL}{PATHS[model_name]}?populate=*&pagination[pageSize]=1000&status=published"
     response = requests.get(url)
     
     if response.status_code != 200:
@@ -75,13 +75,14 @@ async def main():
         index_name = STAGING_INDEX_NAME
         index_name = LOCAL_INDEX_NAME
         index_name = "i12katong-strapi-sparse-v2"
-        # await store_embeddings_in_pinecone_chunkjson_v2(index_name, datas, model_name)
+        await store_embeddings_in_pinecone_chunkjson_v2(index_name, datas, model_name)
 
-        query = "show me promo for this week only"
+        # query = "show me promo for this week only"
         # query = "where is ippudo located?"
         # query="any promo for this week?"
-        resp = search_data_in_pinecone_sparse(index_name=index_name, query=query, k=20)
-        print(f"Retrieved docs {resp}")
+        # query = "current event"
+        # resp = search_data_in_pinecone_sparse(index_name=index_name, query=query, k=20)
+        # print(f"Retrieved docs {resp}")
 
 
         # Example usage

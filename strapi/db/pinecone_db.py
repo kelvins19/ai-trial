@@ -341,7 +341,7 @@ async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[
                 sparse_values = embeddings.data[0]['sparse_values']
                 sparse_indices = embeddings.data[0]['sparse_indices']
 
-                doc_id = f"{model_name}_{item_id}_chunk_{i}_json"
+                doc_id = f"{model_name}_{item_id}_chunk_{i}_sparse_v2"
 
                 prompt = f"""
                 Category: {model_name}
@@ -361,9 +361,50 @@ async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[
                 summary_date_response = query_formatter(input, STRAPI_SUMMARY_AND_DATE_GENERATOR_PROMPT)
                 summary_date_response = json.loads(summary_date_response)
                 print(f"Summary Date Response {summary_date_response}")
+                
+                # Extract values from response
                 summary = summary_date_response.get("summary", "")
-                start_date = summary_date_response.get("start_date", event_dates["start_date"])
-                end_date = summary_date_response.get("end_date", event_dates["end_date"])
+                response_start_date = summary_date_response.get("start_date", event_dates["start_date"])
+                response_end_date = summary_date_response.get("end_date", event_dates["end_date"])
+                
+                # Validate the returned dates to ensure they're from the current year
+                today = datetime.datetime.now()
+                current_year = today.year
+                
+                # Create default timestamps
+                today_timestamp = int(today.timestamp())
+                end_of_year = datetime.datetime(current_year, 12, 31, 23, 59, 59)
+                end_of_year_timestamp = int(end_of_year.timestamp())
+                
+                # Validate start date - check if it's from a past year
+                if response_start_date > 0:
+                    try:
+                        start_date_dt = datetime.datetime.fromtimestamp(response_start_date)
+                        if start_date_dt.year < current_year:
+                            print(f"WARNING: Start date from past year detected: {response_start_date} ({start_date_dt.strftime('%Y-%m-%d')})")
+                            # Use event_dates start_date as fallback, which should be current
+                            response_start_date = event_dates["start_date"]
+                            print(f"Corrected start_date to: {response_start_date} ({datetime.datetime.fromtimestamp(response_start_date).strftime('%Y-%m-%d')})")
+                    except Exception as e:
+                        print(f"Error validating start date: {e}, using default")
+                        response_start_date = event_dates["start_date"]
+                
+                # Validate end date - check if it's from a past year
+                if response_end_date > 0:
+                    try:
+                        end_date_dt = datetime.datetime.fromtimestamp(response_end_date)
+                        if end_date_dt.year < current_year:
+                            print(f"WARNING: End date from past year detected: {response_end_date} ({end_date_dt.strftime('%Y-%m-%d')})")
+                            # Use event_dates end_date as fallback, which should be current
+                            response_end_date = event_dates["end_date"]
+                            print(f"Corrected end_date to: {response_end_date} ({datetime.datetime.fromtimestamp(response_end_date).strftime('%Y-%m-%d')})")
+                    except Exception as e:
+                        print(f"Error validating end date: {e}, using default")
+                        response_end_date = event_dates["end_date"]
+                
+                # Use the validated dates
+                start_date = response_start_date
+                end_date = response_end_date
 
                 metadata = {
                     "doc_id": doc_id, 
@@ -494,7 +535,55 @@ def determine_query(query: str, use_v2: bool = False):
     
     query_response = query_formatter(query, prompt)
     print(f"Query response {query_response}")
-    query_response = json.loads(query_response)
+    
+    try:
+        query_response = json.loads(query_response)
+        
+        # Validate and correct timestamps
+        # Get current date information
+        today = datetime.datetime.now()
+        current_year = today.year
+        today_timestamp = int(today.timestamp())
+        end_of_year = datetime.datetime(current_year, 12, 31, 23, 59, 59)
+        end_of_year_timestamp = int(end_of_year.timestamp())
+        
+        # Check if the query is about events/deals
+        is_event_deal_query = query_response.get("is_event_deal_query", False)
+        
+        # Get the existing timestamps
+        start_date = query_response.get("start_date", 0)
+        end_date = query_response.get("end_date", 0)
+        
+        # Validate timestamps for event/deal queries
+        if is_event_deal_query:
+            # If start date is suspicious (zero, negative, or from past year)
+            if start_date <= 0 or datetime.datetime.fromtimestamp(start_date).year < current_year:
+                print(f"WARNING: Invalid or past year start date detected: {start_date} ({datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d') if start_date > 0 else 'Invalid'})")
+                # Replace with today's timestamp
+                start_date = today_timestamp
+                print(f"Corrected start_date to today: {start_date} ({datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d')})")
+            
+            # If end date is suspicious (zero, negative, or from past year)
+            if end_date <= 0 or datetime.datetime.fromtimestamp(end_date).year < current_year:
+                print(f"WARNING: Invalid or past year end date detected: {end_date} ({datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d') if end_date > 0 else 'Invalid'})")
+                # Replace with end of current year timestamp
+                end_date = end_of_year_timestamp
+                print(f"Corrected end_date to end of year: {end_date} ({datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d')})")
+            
+            # Update the response with corrected timestamps
+            query_response["start_date"] = start_date
+            query_response["end_date"] = end_date
+            
+    except json.JSONDecodeError as e:
+        print(f"Error parsing query response: {e}")
+        # Return default response
+        query_response = {
+            "is_event_deal_query": False,
+            "start_date": 0,
+            "end_date": 0
+        }
+        if use_v2:
+            query_response["keywords"] = []
 
     end_time = datetime.datetime.now()
     print(f"Time taken for determining query type: {end_time - start_time} seconds")
