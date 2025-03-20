@@ -740,73 +740,20 @@ def determine_query(query: str, use_v2: bool = False):
     
     query_response = query_formatter(query, prompt)
     print(f"Query response {query_response}")
+
+    if not query_response.endswith("}"):
+        query_response += "}"
+    if query_response.endswith("```}"):
+        query_response = query_response.replace("```}", "").strip()
+    if query_response.endswith("```"):
+        query_response = query_response.replace("```", "").strip()
+    if query_response.startswith("```"):
+        query_response = query_response.replace("```", "").strip()
+    if query_response.startswith("json"):
+        query_response = query_response.replace("json", "").strip()
     
     try:
         query_response = json.loads(query_response)
-        
-        # Validate and correct timestamps if needed (only for time-sensitive queries)
-        if use_v2:
-            needs_time_range = query_response.get("needs_time_range", False)
-            is_event_deal_query = query_response.get("is_event_deal_query", False)
-            
-            # If query needs time range, validate the timestamps
-            if needs_time_range and is_event_deal_query:
-                # Get current date information
-                today = datetime.datetime.now()
-                current_year = today.year
-                today_timestamp = int(today.timestamp())
-                end_of_year = datetime.datetime(current_year, 12, 31, 23, 59, 59)
-                end_of_year_timestamp = int(end_of_year.timestamp())
-                
-                # Get and validate timestamps
-                start_date = query_response.get("start_date", 0)
-                end_date = query_response.get("end_date", 0)
-                
-                # Validate start date (check if it's valid and from current year)
-                if start_date <= 0 or (start_date > 0 and datetime.datetime.fromtimestamp(start_date).year < current_year):
-                    print(f"WARNING: Invalid or past year start date detected: {start_date}")
-                    start_date = today_timestamp
-                    print(f"Corrected start_date to today: {start_date} ({datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d')})")
-                    query_response["start_date"] = start_date
-                
-                # Validate end date (check if it's valid and from current year)
-                if end_date <= 0 or (end_date > 0 and datetime.datetime.fromtimestamp(end_date).year < current_year):
-                    print(f"WARNING: Invalid or past year end date detected: {end_date}")
-                    end_date = end_of_year_timestamp
-                    print(f"Corrected end_date to end of year: {end_date} ({datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d')})")
-                    query_response["end_date"] = end_date
-            # For queries that don't need time range, ensure timestamps are 0
-            elif not needs_time_range:
-                query_response["start_date"] = 0
-                query_response["end_date"] = 0
-        else:
-            # Handle original prompt (maintain backward compatibility)
-            is_event_deal_query = query_response.get("is_event_deal_query", False)
-            start_date = query_response.get("start_date", 0)
-            end_date = query_response.get("end_date", 0)
-            
-            # Validate timestamps for event/deal queries
-            if is_event_deal_query:
-                # Get current date information
-                today = datetime.datetime.now()
-                current_year = today.year
-                today_timestamp = int(today.timestamp())
-                end_of_year = datetime.datetime(current_year, 12, 31, 23, 59, 59)
-                end_of_year_timestamp = int(end_of_year.timestamp())
-                
-                # Validate start date
-                if start_date <= 0 or (start_date > 0 and datetime.datetime.fromtimestamp(start_date).year < current_year):
-                    print(f"WARNING: Invalid or past year start date detected: {start_date}")
-                    start_date = today_timestamp
-                    print(f"Corrected start_date to today: {start_date} ({datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d')})")
-                    query_response["start_date"] = start_date
-                
-                # Validate end date
-                if end_date <= 0 or (end_date > 0 and datetime.datetime.fromtimestamp(end_date).year < current_year):
-                    print(f"WARNING: Invalid or past year end date detected: {end_date}")
-                    end_date = end_of_year_timestamp
-                    print(f"Corrected end_date to end of year: {end_date} ({datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d')})")
-                    query_response["end_date"] = end_date
     except json.JSONDecodeError as e:
         print(f"Error parsing query response: {e}")
         # Return default response

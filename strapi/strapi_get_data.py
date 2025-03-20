@@ -1,8 +1,8 @@
 import requests
 from constants import BASE_URL, PATHS, STAGING_INDEX_NAME, LOCAL_INDEX_NAME
 import json
-from db.pinecone_db import search_data_in_pinecone, store_embeddings_in_pinecone_chunkjson, search_data_in_pinecone_sparse, store_embeddings_in_pinecone_chunkjson_v2, search_promos_for_this_week
-from db.pinecone_db_sparse_dense import search_data_in_pinecone_hybrid, store_embeddings_in_pinecone_hybrid, search_promos_by_date_range, determine_query
+from db.pinecone_db import search_data_in_pinecone_sparse, store_embeddings_in_pinecone_chunkjson_v2
+from db.pinecone_db_sparse_dense import search_data_in_pinecone_hybrid, store_embeddings_in_pinecone_hybrid, determine_query
 import asyncio
 from bs4 import BeautifulSoup
 from bs4 import MarkupResemblesLocatorWarning
@@ -78,24 +78,25 @@ async def main():
         index_name = "i12katong-strapi-sparse-dense"
         # await store_embeddings_in_pinecone_hybrid(index_name, datas, model_name)
 
-        query = "show me promo for this week only"
-        query = "where is ippudo located?"
-        query="any promo for this week?"
-        query = "current event"
-        resp = search_data_in_pinecone_sparse(index_name=index_name, query=query, k=20)
-        print(f"Retrieved docs {resp}")
+        # query = "show me promo for this week only"
+        # query = "where is ippudo located?"
+        # query="any promo for this week?"
+        # query = "current event"
+        # resp = search_data_in_pinecone_sparse(index_name=index_name, query=query, k=20)
+        # print(f"Retrieved docs {resp}")
 
 
         # Example usage
         # query = "show me promo for this week only"
-        # # query = "where is ippudo located?"
-        # query = "tell me about coucou promo"
-        # resp = determine_query(query)
-        # print(f"Determined query {resp}")
-        # start_date = datetime.datetime.now()
+        # query = "where is ippudo located?"
+        query = "tell me about coucou promo"
+        # query = "tell me about activities"
+        start_date = datetime.datetime.now()
+        resp = determine_query(query, use_v2=True)
+        print(f"Determined query {resp}")
+        end_date = datetime.datetime.now()
+        print(f"Time taken for search: {end_date - start_date}")
         # this_week_promos = search_data_in_pinecone_hybrid(index_name, query, use_enhanced_query=False)
-        # end_date = datetime.datetime.now()
-        # print(f"Time taken for search: {end_date - start_date}")
         # print(f"Retrieved docs {this_week_promos}")
 
         # # Display results

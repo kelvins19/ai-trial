@@ -216,78 +216,18 @@ For specific days like "this Thursday", ensure you're calculating the correct da
 """
 
 STRAPI_QUERY_DETECTOR_PROMPT_V2 = """
-You are an assistant analyzing user queries to identify intent and extract relevant information.
+Parse query: Return ONLY this JSON - no text, no code blocks, no explanations:
+{{"is_event_deal_query":BOOL,"needs_time_range":BOOL,"start_date":INT,"end_date":INT,"keywords":["k1","k2","k3","k4","k5"]}}
 
-Your task is to analyze the query and determine:
-1. If the query is related to events, deals, or time-sensitive content
-2. Whether time range information is needed based on query context
-3. Generate relevant keywords to enhance the search
+Rules:
+1. is_event_deal_query: True if about events/deals/promotions, else False
+2. needs_time_range: Always True when is_event_deal_query is True; Always False otherwise
+3. start_date: For event/deal queries, use unix timestamp (now for today, etc); For non-event queries, use 0
+4. end_date: For event/deal queries, calculate end timestamp; For non-event queries, use 0
+5. keywords: 5 most relevant search terms only and in lowercase only
 
-Follow this adaptive approach:
-
-STEP 1: DETERMINE IF QUERY IS TIME-SENSITIVE
-- First, detect if the query is about events, deals, promotions, or activities
-- If YES, the query is considered time-sensitive 
-- If NO (queries about locations, information, etc.), no time range is needed
-
-STEP 2: EXTRACT TIME INFORMATION (ONLY for time-sensitive queries)
-- Check if the query contains EXPLICIT time references (e.g., "this week", "next month", "weekend")
-- If YES, extract appropriate start_date and end_date as Unix timestamps
-- If NO explicit time references, use default ranges: 
-  * For deals: today to 7 days ahead
-  * For events: today to 30 days ahead
-- For non-time-sensitive queries, set both timestamps to 0
-
-STEP 3: GENERATE RELEVANT KEYWORDS
-- Extract 5-10 most relevant keywords based on the query content
-- Include format variations and synonyms (only when highly relevant)
-- For time-sensitive queries: include terms like "deals", "events", etc.
-- For location queries: include location-related terms
-
-Return the following JSON structure:
-{
-    "is_event_deal_query": true/false,
-    "needs_time_range": true/false,
-    "start_date": UNIX_TIMESTAMP,
-    "end_date": UNIX_TIMESTAMP,
-    "keywords": ["keyword1", "keyword2", ...]
-}
-
-Examples:
-
-Input: "current events this week"
-Output:
-{
-    "is_event_deal_query": true,
-    "needs_time_range": true,
-    "start_date": [TIMESTAMP_FOR_MONDAY],
-    "end_date": [TIMESTAMP_FOR_SUNDAY],
-    "keywords": ["event", "events", "this week", "weekly events", "current", "activities", "whats on"]
-}
-
-Input: "where is watsons located?"
-Output:
-{
-    "is_event_deal_query": false,
-    "needs_time_range": false,
-    "start_date": 0,
-    "end_date": 0,
-    "keywords": ["watsons", "location", "store", "map", "directions", "find"]
-}
-
-Input: "any deals?"
-Output:
-{
-    "is_event_deal_query": true,
-    "needs_time_range": true,
-    "start_date": [TIMESTAMP_FOR_TODAY],
-    "end_date": [TIMESTAMP_FOR_TODAY+7_DAYS],
-    "keywords": ["deals", "promotions", "discounts", "offers", "specials"]
-}
-
-IMPORTANT:
-- Always calculate timestamps using TODAY's actual date
-- For queries without explicit time references, use sensible defaults
-- All timestamps must be Unix timestamps in the current timezone
-- Never use dates from examples - always calculate based on current date
+Example mapping:
+"deals this week" → {{"is_event_deal_query":true,"needs_time_range":true,timestamps...}}
+"any deals" → {{"is_event_deal_query":true,"needs_time_range":true,timestamps...}}
+"store hours" → {{"is_event_deal_query":false,"needs_time_range":false,"start_date":0,"end_date":0,...}}
 """

@@ -13,9 +13,12 @@ load_dotenv()
 
 def query_formatter(query, custom_prompt: str= None):    
     llm_model = ChatOpenAI(
-        openai_api_key=os.getenv("OPENAI_API_KEY"),
-        openai_api_base=os.getenv("OPENAI_BASE_URL"),
-        model_name=os.getenv("OPENAI_MODEL_NAME"),
+        # openai_api_key=os.getenv("OPENAI_API_KEY"),
+        # openai_api_base=os.getenv("OPENAI_BASE_URL"),
+        # model_name=os.getenv("OPENAI_MODEL_NAME"),
+        openai_api_key=os.getenv("GEMINIAI_API_KEY"),
+        openai_api_base=os.getenv("GEMINIAI_BASE_URL"),
+        model_name=os.getenv("GEMINIAI_MODEL_NAME"),
     )
 
     # Get today's date and add it to every prompt
