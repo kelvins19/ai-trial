@@ -250,8 +250,8 @@ def search_data_in_pinecone_hybrid(
         filter_dict = {
             "$and": [
                 {"category": {"$in": ["deal", "event"]}},
-                {"start_date": {"$lte": str(end_date)}},
-                {"end_date": {"$gte": str(start_date)}}
+                {"start_date": {"$lte": int(end_date)}},
+                {"end_date": {"$gte": int(start_date)}}
             ]
         }
         print(f"Using filter: {filter_dict}")
@@ -681,108 +681,168 @@ async def store_embeddings_in_pinecone_hybrid(index_name: str, data: Dict[str, s
     index = pc.Index(index_name)
     vectors = []
 
-    # Ensure data is a JSON string
-    json_data = json.dumps(data)
-    chunks = chunk_json_data_text(json_data)
+    # Check if data is a list of items (like store_embeddings_in_pinecone_chunkjson_v2)
+    # or a single JSON object
+    if isinstance(data, list):
+        # This is a list of structured items (similar to store_embeddings_in_pinecone_chunkjson_v2)
+        for item in data:
+            item_id = item.get("id", "")
+            title = item.get("title", "")
+            photos = item.get("photos", [])
+            event_date = item.get("event_date", "")
+            location = item.get("location", "")
+            body = item.get("body", "")
+            time = item.get("time", "")
+            name = item.get("name", "")
+            contact_number = item.get("contact_number", "")
+            opening_hours = item.get("opening_hours", "")
+            website = item.get("website", "")
+            category = item.get("category", "")
 
-    for i, chunk in enumerate(chunks):
-        chunk = escape_curly_brackets(chunk)
-        try:
-            # Generate sparse embeddings
-            sparse_embed = get_sparse_embeddings(chunk)
-            
-            # Generate dense embeddings
-            dense_embed = get_dense_embeddings(chunk)
+            # Parse the event dates from the event_date string
+            event_dates = parse_event_dates(event_date)
 
-            doc_id = f"{model_name}_chunk_{i}_hybrid"
+            # Format content based on model type
+            if model_name in ["event", "deal"]:
+                content = f"Title: {title}\nImage URL: {photos[0] if photos else ''}\nDate: {event_date} {time}\nLocation: {location}\n{body}"
+            elif model_name == "store":
+                content = f"Store: {name}\nLocation: {location}\nContact: {contact_number}\nOpening Hours: {opening_hours}\nWebsite: {website}\nCategory: {category}\n{body}"
+            else:
+                content = ""
+                for key, value in item.items():
+                    if key == "id":
+                        continue
+                    content += f"{key.replace('_', ' ').title()}: {value}\n"
 
-            prompt = f"""
-            Category: {model_name}
-            {chunk}
-            """
+            chunks = chunk_json_data_text(content)
 
-            expected_json = query_formatter(prompt, STRAPI_KEYWORD_GENERATOR_PROMPT_1)
-            keywords = json.loads(expected_json).get("keywords", [])
+            for i, chunk in enumerate(chunks):
+                chunk = escape_curly_brackets(chunk)
+                try:
+                    # Generate sparse embeddings
+                    sparse_embed = get_sparse_embeddings(chunk)
+                    
+                    # Generate dense embeddings
+                    dense_embed = get_dense_embeddings(chunk)
 
-            print(f"Generated keyword for chunk {i} model {model_name}: {keywords}")
-            
-            summary_response = query_formatter(chunk, STRAPI_SUMMARY_GENERATOR_PROMPT)
+                    doc_id = f"{model_name}_{item_id}_chunk_{i}_hybrid"
 
-            vectors.append({
-                "id": doc_id, 
-                "values": dense_embed,  # Dense vector
-                "sparse_values": {  # Sparse vector
-                    "indices": sparse_embed["indices"], 
-                    "values": sparse_embed["values"]
-                }, 
-                "metadata": {
-                    "doc_id": doc_id, 
-                    "doc_type": "text", 
-                    "filename": doc_id, 
-                    "summary": summary_response, 
-                    "page_number": 1,
-                    "keywords": keywords,
-                    "chunk_text": chunk,
-                    "category": model_name
-                }
-            })
+                    prompt = f"""
+                    Category: {model_name}
+                    {chunk}
+                    """
 
-            # Upsert plaintext content to local DB
-            upsert_docstore_in_db(doc_id, chunk)
-        except Exception as e:
-            print(f"Error processing chunk {i}: {e}")
+                    # Generate keywords
+                    expected_json = query_formatter(prompt, STRAPI_KEYWORD_GENERATOR_PROMPT_1)
+                    keywords = json.loads(expected_json).get("keywords", [])
+                    print(f"Generated keyword for chunk {i} model {model_name}: {keywords}")
+                    
+                    # Generate summary with dates - using the same approach as in store_embeddings_in_pinecone_chunkjson_v2
+                    input_text = f"""
+                    Event Date: {event_date}
+                    Body: {prompt}
+                    """
+                    summary_date_response = query_formatter(input_text, STRAPI_SUMMARY_AND_DATE_GENERATOR_PROMPT)
+                    summary_date_response = json.loads(summary_date_response)
+                    print(f"Summary Date Response {summary_date_response}")
+                    
+                    # Extract values from response
+                    summary = summary_date_response.get("summary", "")
+                    response_start_date = summary_date_response.get("start_date", event_dates["start_date"])
+                    response_end_date = summary_date_response.get("end_date", event_dates["end_date"])
+                    
+                    # Validate the returned dates to ensure they're from the current year
+                    today = datetime.datetime.now()
+                    current_year = today.year
+                    
+                    # Create default timestamps
+                    today_timestamp = int(today.timestamp())
+                    end_of_year = datetime.datetime(current_year, 12, 31, 23, 59, 59)
+                    end_of_year_timestamp = int(end_of_year.timestamp())
+                    
+                    # Validate start date - check if it's from a past year
+                    if response_start_date > 0:
+                        try:
+                            start_date_dt = datetime.datetime.fromtimestamp(response_start_date)
+                            if start_date_dt.year < current_year:
+                                print(f"WARNING: Start date from past year detected: {response_start_date} ({start_date_dt.strftime('%Y-%m-%d')})")
+                                # Use event_dates start_date as fallback, which should be current
+                                response_start_date = event_dates["start_date"]
+                                print(f"Corrected start_date to: {response_start_date} ({datetime.datetime.fromtimestamp(response_start_date).strftime('%Y-%m-%d')})")
+                        except Exception as e:
+                            print(f"Error validating start date: {e}, using default")
+                            response_start_date = event_dates["start_date"]
+                    
+                    # Validate end date - check if it's from a past year
+                    if response_end_date > 0:
+                        try:
+                            end_date_dt = datetime.datetime.fromtimestamp(response_end_date)
+                            if end_date_dt.year < current_year:
+                                print(f"WARNING: End date from past year detected: {response_end_date} ({end_date_dt.strftime('%Y-%m-%d')})")
+                                # Use event_dates end_date as fallback, which should be current
+                                response_end_date = event_dates["end_date"]
+                                print(f"Corrected end_date to: {response_end_date} ({datetime.datetime.fromtimestamp(response_end_date).strftime('%Y-%m-%d')})")
+                        except Exception as e:
+                            print(f"Error validating end date: {e}, using default")
+                            response_end_date = event_dates["end_date"]
+                    
+                    # Use the validated dates
+                    start_date = response_start_date
+                    end_date = response_end_date
 
-    if vectors:
-        print(f"Upserting {len(vectors)} hybrid vectors")
-        index.upsert(vectors)
+                    # Create metadata
+                    metadata = {
+                        "doc_id": doc_id, 
+                        "doc_type": "text", 
+                        "filename": doc_id, 
+                        "summary": summary, 
+                        "page_number": 1,
+                        "keywords": keywords,
+                        "category": model_name,
+                        "chunk_text": chunk
+                    }
 
-async def store_embeddings_in_pinecone_chunkjson_v2_hybrid(index_name: str, data: Dict[str, str], model_name: str):
-    """
-    Store both sparse and dense embeddings for structured data like events and deals.
-    
-    Args:
-        index_name: Name of the Pinecone index
-        data: Structured data (list of items) to embed and store
-        model_name: Category/type of the data ("event", "deal", "store", etc.)
-        
-    Returns:
-        None
-    """
-    print(f"Storing hybrid embeddings for {model_name} in Pinecone index {index_name}")
-    dimension = 384  # Dimension of the dense model
-    create_index_if_not_exists(index_name, dimension=dimension)
-    index = pc.Index(index_name)
-    vectors = []
+                    # Add type-specific metadata
+                    if model_name in ["event", "deal"]:
+                        metadata.update({
+                            "event_date": event_date or "",
+                            "start_date": start_date,
+                            "end_date": end_date,
+                            "location": location or ""
+                        })
+                    elif model_name == "store":
+                        metadata.update({
+                            "type": category or "",
+                            "location": location or ""
+                        })
 
-    for item in data:
-        item_id = item.get("id", "")
-        title = item.get("title", "")
-        photos = item.get("photos", [])
-        event_date = item.get("event_date", "")
-        location = item.get("location", "")
-        body = item.get("body", "")
-        time = item.get("time", "")
-        name = item.get("name", "")
-        contact_number = item.get("contact_number", "")
-        opening_hours = item.get("opening_hours", "")
-        website = item.get("website", "")
-        category = item.get("category", "")
+                    # Create vector with both sparse and dense embeddings
+                    vectors.append({
+                        "id": doc_id, 
+                        "values": dense_embed,  # Dense vector
+                        "sparse_values": {  # Sparse vector
+                            "indices": sparse_embed["indices"], 
+                            "values": sparse_embed["values"]
+                        }, 
+                        "metadata": metadata
+                    })
 
-        event_dates = parse_event_dates(event_date)
+                    # Store debugging data
+                    output_dir = "event_pinecone_data"
+                    os.makedirs(output_dir, exist_ok=True)
+                    with open(f"{output_dir}/{doc_id}.txt", "w") as file:
+                        file.write(f"Raw Chunk:\n{chunk}\n\n")
+                        json.dump(vectors[-1], file, indent=4)
 
-        # Format content based on model type
-        if model_name in ["event", "deal"]:
-            content = f"Title: {title}\nImage URL: {photos[0] if photos else ''}\nDate: {event_date} {time}\nLocation: {location}\n{body}"
-        elif model_name == "store":
-            content = f"Store: {name}\nLocation: {location}\nContact: {contact_number}\nOpening Hours: {opening_hours}\nWebsite: {website}\nCategory: {category}\n{body}"
-        else:
-            content = ""
-            for key, value in item.items():
-                if key == "id":
-                    continue
-                content += f"{key.replace('_', ' ').title()}: {value}\n"
-
-        chunks = chunk_json_data_text(content)
+                    # Store in document DB
+                    upsert_docstore_in_db(doc_id, chunk)
+                except Exception as e:
+                    print(f"Error processing chunk {i}: {e}")
+    else:
+        # Handle the case where data is a single JSON object (original behavior)
+        # Ensure data is a JSON string
+        json_data = json.dumps(data)
+        chunks = chunk_json_data_text(json_data)
 
         for i, chunk in enumerate(chunks):
             chunk = escape_curly_brackets(chunk)
@@ -793,7 +853,7 @@ async def store_embeddings_in_pinecone_chunkjson_v2_hybrid(index_name: str, data
                 # Generate dense embeddings
                 dense_embed = get_dense_embeddings(chunk)
 
-                doc_id = f"{model_name}_{item_id}_chunk_{i}_hybrid"
+                doc_id = f"{model_name}_chunk_{i}_hybrid"
 
                 prompt = f"""
                 Category: {model_name}
@@ -805,18 +865,55 @@ async def store_embeddings_in_pinecone_chunkjson_v2_hybrid(index_name: str, data
                 keywords = json.loads(expected_json).get("keywords", [])
                 print(f"Generated keyword for chunk {i} model {model_name}: {keywords}")
                 
-                # Generate summary with dates
+                # Similar to chunkjson_v2, let's try to extract dates if they exist
                 input_text = f"""
-                Event Date: {event_date}
+                Event Date: 
                 Body: {prompt}
                 """
                 summary_date_response = query_formatter(input_text, STRAPI_SUMMARY_AND_DATE_GENERATOR_PROMPT)
                 summary_date_response = json.loads(summary_date_response)
+                
+                # Extract values and validate dates
                 summary = summary_date_response.get("summary", "")
-                start_date = summary_date_response.get("start_date", event_dates["start_date"])
-                end_date = summary_date_response.get("end_date", event_dates["end_date"])
+                
+                # Get current date information for validation
+                today = datetime.datetime.now()
+                current_year = today.year
+                today_timestamp = int(today.timestamp())
+                end_of_year = datetime.datetime(current_year, 12, 31, 23, 59, 59)
+                end_of_year_timestamp = int(end_of_year.timestamp())
+                
+                # Get dates from response
+                start_date = summary_date_response.get("start_date", today_timestamp)
+                end_date = summary_date_response.get("end_date", end_of_year_timestamp)
+                
+                # Validate start date
+                if start_date > 0:
+                    try:
+                        start_date_dt = datetime.datetime.fromtimestamp(start_date)
+                        if start_date_dt.year < current_year:
+                            print(f"WARNING: Start date from past year detected: {start_date} ({start_date_dt.strftime('%Y-%m-%d')})")
+                            # Use today as fallback
+                            start_date = today_timestamp
+                            print(f"Corrected start_date to today: {start_date} ({datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d')})")
+                    except Exception as e:
+                        print(f"Error validating start date: {e}, using today")
+                        start_date = today_timestamp
+                
+                # Validate end date
+                if end_date > 0:
+                    try:
+                        end_date_dt = datetime.datetime.fromtimestamp(end_date)
+                        if end_date_dt.year < current_year:
+                            print(f"WARNING: End date from past year detected: {end_date} ({end_date_dt.strftime('%Y-%m-%d')})")
+                            # Use end of year as fallback
+                            end_date = end_of_year_timestamp
+                            print(f"Corrected end_date to end of year: {end_date} ({datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d')})")
+                    except Exception as e:
+                        print(f"Error validating end date: {e}, using end of year")
+                        end_date = end_of_year_timestamp
 
-                # Create metadata
+                # Create metadata with the same structure as in chunkjson_v2
                 metadata = {
                     "doc_id": doc_id, 
                     "doc_type": "text", 
@@ -825,22 +922,10 @@ async def store_embeddings_in_pinecone_chunkjson_v2_hybrid(index_name: str, data
                     "page_number": 1,
                     "keywords": keywords,
                     "category": model_name,
-                    "chunk_text": chunk
+                    "chunk_text": chunk,
+                    "start_date": start_date,
+                    "end_date": end_date
                 }
-
-                # Add type-specific metadata
-                if model_name in ["event", "deal"]:
-                    metadata.update({
-                        "event_date": event_date or "",
-                        "start_date": start_date,
-                        "end_date": end_date,
-                        "location": location or ""
-                    })
-                elif model_name == "store":
-                    metadata.update({
-                        "type": category or "",
-                        "location": location or ""
-                    })
 
                 # Create vector with both sparse and dense embeddings
                 vectors.append({
@@ -852,13 +937,6 @@ async def store_embeddings_in_pinecone_chunkjson_v2_hybrid(index_name: str, data
                     }, 
                     "metadata": metadata
                 })
-
-                # Store debugging data
-                output_dir = "event_pinecone_data"
-                os.makedirs(output_dir, exist_ok=True)
-                with open(f"{output_dir}/{doc_id}.txt", "w") as file:
-                    file.write(f"Raw Chunk:\n{chunk}\n\n")
-                    json.dump(vectors[-1], file, indent=4)
 
                 # Store in document DB
                 upsert_docstore_in_db(doc_id, chunk)
