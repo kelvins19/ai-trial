@@ -1,9 +1,9 @@
 BASE_URL = "https://cms.bistrobytes.com.sg/api"
 PATHS = {
     # "article": "/articles",
-    "event": "/events",
-    # "store": "/stores",
-    "deal": "/deals",
+    # "event": "/events",
+    "store": "/stores",
+    # "deal": "/deals",
     # "reward": "/rewards",
     # "config-contact-us": '/config-contact-us',
     # "config-about-us": '/config-about-us',
@@ -216,131 +216,78 @@ For specific days like "this Thursday", ensure you're calculating the correct da
 """
 
 STRAPI_QUERY_DETECTOR_PROMPT_V2 = """
-You are an advanced assistant tasked with analyzing user queries to identify their intent, extract time-related information, and generate relevant keywords.
+You are an assistant analyzing user queries to identify intent and extract relevant information.
 
-Your response will include THREE components:
-1. Determine if the query is about events or deals
-2. Generate appropriate start_date and end_date values as Unix timestamps
-3. Generate a list of relevant keywords based on the query content
+Your task is to analyze the query and determine:
+1. If the query is related to events, deals, or time-sensitive content
+2. Whether time range information is needed based on query context
+3. Generate relevant keywords to enhance the search
 
-Follow these guidelines for DATE DETECTION:
+Follow this adaptive approach:
 
-1. For queries explicitly about events or activities or deals or promotions WITH time references:
-   - "current event this week" → start_date = beginning of current week, end_date = end of current week
-   - "any deal this thursday?" → start_date = this Thursday's date, end_date = Friday (1 day after)
-   - "events next month" → start_date = first day of next month, end_date = last day of next month
-   - "deals for weekend" → start_date = upcoming Friday, end_date = upcoming Sunday
+STEP 1: DETERMINE IF QUERY IS TIME-SENSITIVE
+- First, detect if the query is about events, deals, promotions, or activities
+- If YES, the query is considered time-sensitive 
+- If NO (queries about locations, information, etc.), no time range is needed
 
-2. For queries about events or activities or deals or promotions WITHOUT specific time references:
-   - "any deals?" or "what are the deals?" → start_date = today's date, end_date = 7 days after today
-   - "show me events" → start_date = today's date, end_date = 30 days after today
+STEP 2: EXTRACT TIME INFORMATION (ONLY for time-sensitive queries)
+- Check if the query contains EXPLICIT time references (e.g., "this week", "next month", "weekend")
+- If YES, extract appropriate start_date and end_date as Unix timestamps
+- If NO explicit time references, use default ranges: 
+  * For deals: today to 7 days ahead
+  * For events: today to 30 days ahead
+- For non-time-sensitive queries, set both timestamps to 0
 
-3. For NON-event or deal queries (information, location, amenities, etc.):
-   - "where is watsons located?" → start_date = 0, end_date = 0
-   - "what is rewards+?" → start_date = 0, end_date = 0
-   - "any ev charging here?" → start_date = 0, end_date = 0
-   - "where is the mall located?" → start_date = 0, end_date = 0
+STEP 3: GENERATE RELEVANT KEYWORDS
+- Extract 5-10 most relevant keywords based on the query content
+- Include format variations and synonyms (only when highly relevant)
+- For time-sensitive queries: include terms like "deals", "events", etc.
+- For location queries: include location-related terms
 
-IMPORTANT: Always use the ACTUAL CURRENT DATE to calculate Unix timestamps. This means:
-- If today's date is June 15, 2024, use that as your reference point
-- DO NOT use dates from previous years or hardcoded dates
-- Calculate "this week", "next month", etc. relative to TODAY's date
-- Always convert to Unix timestamps using the current timezone
-
-Follow these guidelines for KEYWORD GENERATION:
-1. For ALL queries (whether event/deal related or not), generate 5-15 relevant keywords
-2. Generate lowercase keywords in multiple formats:
-   - space separated, strip-separated, underscore_separated, no separation
-3. Include synonyms and related terms
-4. For event/deal queries, include terms like:
-   - "deals", "promotions", "events", "activities", specific categories mentioned
-5. For location queries, include terms like:
-   - store names, location types, "map", "directions"
-6. If the query mentions specific items, products, or services, include those as keywords
-
-Return the output in valid JSON format with all three components:
-{{
+Return the following JSON structure:
+{
     "is_event_deal_query": true/false,
+    "needs_time_range": true/false,
     "start_date": UNIX_TIMESTAMP,
     "end_date": UNIX_TIMESTAMP,
-    "keywords": [
-        "keyword1",
-        "keyword2",
-        "keyword3",
-        ...
-    ]
-}}
+    "keywords": ["keyword1", "keyword2", ...]
+}
 
-Example 1:
-Input: "current event this week"
+Examples:
+
+Input: "current events this week"
 Output:
-{{
+{
     "is_event_deal_query": true,
-    "start_date": 1715644800,
-    "end_date": 1716249599,
-    "keywords": [
-        "event",
-        "events",
-        "current event",
-        "this week",
-        "weekly event",
-        "weekly events",
-        "happening now",
-        "current",
-        "activities",
-        "whats on"
-    ]
-}}
+    "needs_time_range": true,
+    "start_date": [TIMESTAMP_FOR_MONDAY],
+    "end_date": [TIMESTAMP_FOR_SUNDAY],
+    "keywords": ["event", "events", "this week", "weekly events", "current", "activities", "whats on"]
+}
 
-Example 2:
 Input: "where is watsons located?"
 Output:
-{{
+{
     "is_event_deal_query": false,
+    "needs_time_range": false,
     "start_date": 0,
     "end_date": 0,
-    "keywords": [
-        "watsons",
-        "watson",
-        "watsons location",
-        "pharmacy",
-        "store location",
-        "map",
-        "directions",
-        "where is",
-        "find",
-        "locate",
-        "shop"
-    ]
-}}
+    "keywords": ["watsons", "location", "store", "map", "directions", "find"]
+}
 
-Example 3:
-Input: "any food deals this weekend?"
+Input: "any deals?"
 Output:
-{{
+{
     "is_event_deal_query": true,
-    "start_date": 1716595200,
-    "end_date": 1716768000,
-    "keywords": [
-        "food",
-        "food deals",
-        "deals",
-        "weekend",
-        "weekend deals",
-        "food promotions",
-        "restaurant",
-        "dining",
-        "eating",
-        "fnb",
-        "f&b",
-        "food and beverage",
-        "discounts",
-        "special offers"
-    ]
-}}
+    "needs_time_range": true,
+    "start_date": [TIMESTAMP_FOR_TODAY],
+    "end_date": [TIMESTAMP_FOR_TODAY+7_DAYS],
+    "keywords": ["deals", "promotions", "discounts", "offers", "specials"]
+}
 
-CRITICAL: The timestamp values in these examples are just for illustration. You MUST calculate timestamps based on TODAY's actual date, not the dates used in these examples.
-Use today's date to calculate all time references.
-Make sure all timestamp calculations are accurate, accounting for month boundaries, leap years, etc.
-Ensure the keywords are diverse but relevant to the query content.
+IMPORTANT:
+- Always calculate timestamps using TODAY's actual date
+- For queries without explicit time references, use sensible defaults
+- All timestamps must be Unix timestamps in the current timezone
+- Never use dates from examples - always calculate based on current date
 """

@@ -143,36 +143,6 @@ def search_data_in_pinecone_sparse(index_name: str, query: str, k: int =20):
     end_time = datetime.datetime.now()
     print(f"Time taken for retrieval from pinecone: {end_time - start_time} seconds")
     
-    # If we've filtered at query time, we don't need to post-process
-    # But keeping the code for backward compatibility
-    if is_event_deal_query and start_date > 0 and end_date > 0 and filter_dict is None:
-        filtered_results = []
-        for match in retrieved_docs.matches:
-            metadata = match.metadata
-            # Check if it's a deal/promo or event
-            if metadata.get("category") in ["deal", "event"]:
-                # Get date information
-                item_start_date = metadata.get("start_date")
-                item_end_date = metadata.get("end_date")
-                
-                # Check if the item is active during the requested date range
-                if item_start_date and item_end_date:
-                    # Item must start before end of requested period and end after start of requested period
-                    if int(item_start_date) <= end_date and int(item_end_date) >= start_date:
-                        filtered_results.append(match)
-        
-        # Create a new response with filtered matches
-        if hasattr(retrieved_docs, "_replace"):
-            # If retrieved_docs is a namedtuple (which is common in Pinecone's response)
-            filtered_docs = retrieved_docs._replace(matches=filtered_results)
-            print(f"Filtered from {len(retrieved_docs.matches)} to {len(filtered_results)} results")
-            return filtered_docs
-        else:
-            # Alternative fallback if the response structure is different
-            retrieved_docs.matches = filtered_results
-            print(f"Filtered from {len(retrieved_docs.matches)} to {len(filtered_results)} results")
-            return retrieved_docs
-    
     return retrieved_docs
 
 def search_data_in_pinecone(index_name: str, query: str, k: int = 20): 
@@ -187,43 +157,6 @@ def search_data_in_pinecone(index_name: str, query: str, k: int = 20):
         )
     
     return retrieved_docs
-
-def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], model_name: str):
-    print(f"Storing {model_name} embeddings in Pinecone index {index_name}")
-    dimension = 768
-    create_index_if_not_exists(index_name, dimension=dimension)
-    index = pc.Index(index_name)
-    vectors = []
-    max_metadata_size = 1024  
-
-    content = format_json_to_markdown(data['data'])
-    if len(content.encode('utf-8')) > max_metadata_size:
-        chunks = chunk_json_data(data['data'], max_metadata_size)
-    else:
-        chunks = [content]
-
-    for i, chunk in enumerate(chunks):
-        try:
-            if len(chunk.encode('utf-8')) > max_metadata_size:
-                print(f"Chunk size exceeds the limit: {len(chunk.encode('utf-8'))} bytes")
-                continue
-
-            embedding = model.embed_query(chunk)
-            embedding = [float(x) for x in embedding]
-
-            if len(embedding) != dimension:
-                print(f"Embedding dimension mismatch: expected {dimension}, got {len(embedding)}")
-                continue
-
-            doc_id = f"{model_name}_chunk_{i}"
-            vectors.append({"id": doc_id, "values": embedding, "metadata": {"doc_id": doc_id, "doc_type": "text", "filename": doc_id, "summary": chunk, "page_number": 1}})
-            # Upsert plaintext content to local DB
-            upsert_docstore_in_db(doc_id, chunk)
-        except Exception as e:
-            print(f"Error processing chunk {i}: {e}")
-
-    if vectors:
-        index.upsert(vectors)
 
 def escape_curly_brackets(text: str) -> str:
     return text.replace("{", "{{").replace("}", "}}")
@@ -448,69 +381,6 @@ async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[
         print(f"Upserting {len(vectors)} vectors")
         index.upsert(vectors)
 
-def search_promos_for_this_week(index_name: str, query: str, k: int = 50):
-    """
-    Search for promos/deals that are active during the current week.
-    
-    Args:
-        index_name: Name of the Pinecone index
-        query: User query (e.g., "show me promo for this week only")
-        k: Maximum number of results to retrieve initially
-    
-    Returns:
-        List of deals that match both the query and are active this week
-    """
-    import datetime
-    
-    # First, clean the query to focus on the promo content
-    # Remove the time-specific parts like "for this week only"
-    search_query = query.replace("for this week only", "").replace("show me", "").strip()
-    if not search_query:
-        search_query = "promotion deal discount"  # Default search if query is too generic
-        
-    # Get current date information
-    today = datetime.datetime.now()
-    # Calculate start of week (Monday)
-    start_of_week = today - datetime.timedelta(days=today.weekday())
-    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
-    # Calculate end of week (Sunday)
-    end_of_week = start_of_week + datetime.timedelta(days=6, hours=23, minutes=59, seconds=59)
-    
-    # Convert to Unix timestamps
-    start_timestamp = int(start_of_week.timestamp())
-    end_timestamp = int(end_of_week.timestamp())
-    
-    print(f"Searching for: '{search_query}'")
-    print(f"Date range: {start_of_week.strftime('%Y-%m-%d')} to {end_of_week.strftime('%Y-%m-%d')}")
-    
-    # Search Pinecone using sparse vectors
-    search_results = search_data_in_pinecone_sparse(index_name, search_query, k=k)
-    
-    # Filter results by date
-    filtered_results = []
-    for match in search_results.matches:
-        metadata = match.metadata
-        # Check if it's a deal/promo
-        if metadata.get("category") == "deal":
-            # Get date information
-            start_date = metadata.get("start_date")
-            end_date = metadata.get("end_date")
-            
-            # Check if the promo is active during this week
-            if start_date and end_date:
-                # Promo must start before end of week and end after start of week
-                if int(start_date) <= end_timestamp and int(end_date) >= start_timestamp:
-                    filtered_results.append({
-                        "score": match.score,
-                        "id": match.id,
-                        "summary": metadata.get("summary", ""),
-                        "location": metadata.get("location", ""),
-                        "event_date": metadata.get("event_date", ""),
-                        "keywords": metadata.get("keywords", [])
-                    })
-    
-    print(f"Found {len(filtered_results)} promos active this week")
-    return filtered_results
 
 
 def determine_query(query: str, use_v2: bool = False):

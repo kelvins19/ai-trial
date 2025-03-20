@@ -224,6 +224,9 @@ def search_data_in_pinecone_hybrid(
     # Get keywords if using V2 prompt
     keywords = determined_query.get("keywords", [])
     
+    # Check if query needs time range (only available with V2 prompt)
+    needs_time_range = determined_query.get("needs_time_range", False) if use_enhanced_query else is_event_deal_query
+    
     # If we have keywords from the V2 prompt, enhance the query with them
     enhanced_query = query
     if use_enhanced_query and keywords:
@@ -243,9 +246,9 @@ def search_data_in_pinecone_hybrid(
     end_time = datetime.datetime.now()
     print(f"Time taken for vectorization: {end_time - start_time} seconds")
     
-    # Prepare Pinecone filter if we have date criteria
+    # Prepare Pinecone filter if we have date criteria and the query needs time range
     filter_dict = None
-    if is_event_deal_query and start_date > 0 and end_date > 0:
+    if needs_time_range and start_date > 0 and end_date > 0:
         print(f"Filtering results by date range: {datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d')} to {datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d')}")
         filter_dict = {
             "$and": [
@@ -280,8 +283,8 @@ def search_data_in_pinecone_hybrid(
     print(f"Time taken for hybrid retrieval from pinecone: {end_time - start_time} seconds")
     
     # If we've filtered at query time, we don't need to post-process
-    # But keeping the code for backward compatibility
-    if is_event_deal_query and start_date > 0 and end_date > 0 and filter_dict is None:
+    # But keeping the code for backward compatibility (rarely needed now)
+    if needs_time_range and start_date > 0 and end_date > 0 and filter_dict is None:
         filtered_results = []
         for match in retrieved_docs.matches:
             metadata = match.metadata
@@ -311,7 +314,7 @@ def search_data_in_pinecone_hybrid(
             
     return retrieved_docs
 
-def search_data_in_pinecone_sparse(index_name: str, query: str, k: int = 20):
+def search_data_in_pinecone_sparse(index_name: str, query: str, k: int = 20, use_enhanced_query: bool = False):
     """
     Legacy function for sparse-only search.
     
@@ -319,6 +322,7 @@ def search_data_in_pinecone_sparse(index_name: str, query: str, k: int = 20):
         index_name: Name of the Pinecone index
         query: Search query text
         k: Number of results to return
+        use_enhanced_query: Whether to use the enhanced V2 prompt with keywords
         
     Returns:
         Search results from Pinecone using only sparse vectors
@@ -335,7 +339,7 @@ def search_data_in_pinecone_sparse(index_name: str, query: str, k: int = 20):
     print(f"Time taken for convert to vector: {end_time - start_time} seconds")
 
     # Determine query intent and extract date filters
-    determined_query = determine_query(query)
+    determined_query = determine_query(query, use_v2=use_enhanced_query)
     print(f"Determined query: {determined_query}")
     
     # Get date filters if it's an event/deal query
@@ -343,15 +347,18 @@ def search_data_in_pinecone_sparse(index_name: str, query: str, k: int = 20):
     start_date = determined_query.get("start_date", 0)
     end_date = determined_query.get("end_date", 0)
     
-    # Prepare Pinecone filter if we have date criteria
+    # Check if query needs time range (only available with V2 prompt)
+    needs_time_range = determined_query.get("needs_time_range", False) if use_enhanced_query else is_event_deal_query
+    
+    # Prepare Pinecone filter if we have date criteria and query needs time range
     filter_dict = None
-    if is_event_deal_query and start_date > 0 and end_date > 0:
+    if needs_time_range and start_date > 0 and end_date > 0:
         print(f"Filtering results by date range: {datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d')} to {datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d')}")
         filter_dict = {
             "$and": [
                 {"category": {"$in": ["deal", "event"]}},
-                {"start_date": {"$lte": str(end_date)}},
-                {"end_date": {"$gte": str(start_date)}}
+                {"start_date": {"$lte": int(end_date)}},
+                {"end_date": {"$gte": int(start_date)}}
             ]
         }
         print(f"Using filter: {filter_dict}")
@@ -419,245 +426,6 @@ def search_data_in_pinecone(index_name: str, query: str, k: int = 20):
     """
     # Use hybrid search as the default search method
     return search_data_in_pinecone_hybrid(index_name, query, k)
-
-#------------------------------------------------------------------------------
-# Specialized Search Functions
-#------------------------------------------------------------------------------
-
-def search_promos_for_this_week(index_name: str, query: str, k: int = 50, alpha: float = 0.5):
-    """
-    Search for promos/deals that are active during the current week using hybrid search.
-    
-    Args:
-        index_name: Name of the Pinecone index
-        query: User query (e.g., "show me promo for this week only")
-        k: Maximum number of results to retrieve initially
-        alpha: Weight between sparse (0) and dense (1)
-    
-    Returns:
-        List of deals that match both the query and are active this week
-    """
-    # First, clean the query to focus on the promo content
-    # Remove the time-specific parts like "for this week only"
-    search_query = query.replace("for this week only", "").replace("show me", "").strip()
-    if not search_query:
-        search_query = "promotion deal discount"  # Default search if query is too generic
-        
-    # Get current date information
-    today = datetime.datetime.now()
-    # Calculate start of week (Monday)
-    start_of_week = today - datetime.timedelta(days=today.weekday())
-    start_of_week = start_of_week.replace(hour=0, minute=0, second=0, microsecond=0)
-    # Calculate end of week (Sunday)
-    end_of_week = start_of_week + datetime.timedelta(days=6, hours=23, minutes=59, seconds=59)
-    
-    # Convert to Unix timestamps
-    start_timestamp = int(start_of_week.timestamp())
-    end_timestamp = int(end_of_week.timestamp())
-    
-    print(f"Searching for: '{search_query}'")
-    print(f"Date range: {start_of_week.strftime('%Y-%m-%d')} to {end_of_week.strftime('%Y-%m-%d')}")
-    
-    # Search Pinecone using hybrid search
-    search_results = search_data_in_pinecone_hybrid(index_name, search_query, k=k, alpha=alpha)
-    
-    # Filter results by date
-    filtered_results = []
-    for match in search_results.matches:
-        metadata = match.metadata
-        # Check if it's a deal/promo
-        if metadata.get("category") == "deal":
-            # Get date information
-            start_date = metadata.get("start_date")
-            end_date = metadata.get("end_date")
-            
-            # Check if the promo is active during this week
-            if start_date and end_date:
-                # Promo must start before end of week and end after start of week
-                if int(start_date) <= end_timestamp and int(end_date) >= start_timestamp:
-                    filtered_results.append({
-                        "score": match.score,
-                        "id": match.id,
-                        "summary": metadata.get("summary", ""),
-                        "location": metadata.get("location", ""),
-                        "event_date": metadata.get("event_date", ""),
-                        "keywords": metadata.get("keywords", []),
-                        "chunk_text": metadata.get("chunk_text", "")
-                    })
-    
-    print(f"Found {len(filtered_results)} promos active this week")
-    return filtered_results
-
-def search_promos_by_date_range(
-    index_name: str, 
-    query: str, 
-    date_range: str = "this week",
-    location: str = None,
-    k: int = 50, 
-    alpha: float = 0.5,
-    use_enhanced_query: bool = True  # Whether to use the V2 prompt with keywords
-):
-    """
-    Search for promos/deals that are active during a specific date range using hybrid search.
-    With the enhanced query option, it will automatically extract keywords to improve search accuracy.
-    
-    Args:
-        index_name: Name of the Pinecone index
-        query: User query (e.g., "show me hotel promotions")
-        date_range: Text description of date range like "this week", "next week", "weekend", 
-                   "this month", or specific dates like "2023-12-25 to 2023-12-31"
-                   Set to None to disable date filtering.
-        location: Optional location filter
-        k: Maximum number of results to retrieve initially
-        alpha: Weight between sparse (0) and dense (1)
-        use_enhanced_query: Whether to use the enhanced V2 prompt with keywords
-    
-    Returns:
-        List of deals that match both the query and date criteria
-    """
-    # First, clean the query to focus on the promo content
-    search_query = query.replace("for this week only", "").replace("show me", "").strip()
-    
-    # Determine query intent and extract date filters (and keywords if V2)
-    determined_query = determine_query(search_query, use_v2=use_enhanced_query)
-    
-    # Get keywords if using V2 prompt
-    keywords = determined_query.get("keywords", [])
-    
-    # Enhance the query with keywords if available
-    enhanced_query = search_query
-    if use_enhanced_query and keywords:
-        # Use the top keywords to enhance the query
-        enhanced_keywords = " ".join(keywords[:5])  # Use top 5 keywords
-        enhanced_query = f"{search_query} {enhanced_keywords}"
-        print(f"Enhanced query with keywords: '{enhanced_query}'")
-    
-    # Add location to query if provided
-    if location and location.lower() not in enhanced_query.lower():
-        enhanced_query = f"{enhanced_query} {location}"
-        
-    if not enhanced_query:
-        enhanced_query = "promotion deal discount"  # Default search if query is too generic
-    
-    # Parse date range if provided
-    start_timestamp = None
-    end_timestamp = None
-    
-    if date_range is not None:
-        today = datetime.datetime.now()
-        
-        # Default to this week
-        start_date = today - datetime.timedelta(days=today.weekday())
-        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_date = start_date + datetime.timedelta(days=6, hours=23, minutes=59, seconds=59)
-        
-        # Handle specific date range patterns
-        if date_range == "this week":
-            # Already set to default
-            pass
-        elif date_range == "next week":
-            start_date = start_date + datetime.timedelta(days=7)
-            end_date = end_date + datetime.timedelta(days=7)
-        elif date_range == "weekend":
-            # Set to upcoming weekend (Friday to Sunday)
-            days_until_friday = (4 - today.weekday()) % 7
-            start_date = today + datetime.timedelta(days=days_until_friday)
-            start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = start_date + datetime.timedelta(days=2, hours=23, minutes=59, seconds=59)
-        elif date_range == "this month":
-            # Set to current month
-            start_date = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            # Last day of month calculation
-            if today.month == 12:
-                end_date = today.replace(year=today.year+1, month=1, day=1) - datetime.timedelta(days=1)
-            else:
-                end_date = today.replace(month=today.month+1, day=1) - datetime.timedelta(days=1)
-            end_date = end_date.replace(hour=23, minute=59, second=59)
-        elif date_range == "next month":
-            # Set to next month
-            if today.month == 12:
-                start_date = today.replace(year=today.year+1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-                end_date = start_date.replace(month=2, day=1) - datetime.timedelta(days=1)
-            else:
-                start_date = today.replace(month=today.month+1, day=1, hour=0, minute=0, second=0, microsecond=0)
-                if today.month == 11:  # December
-                    end_date = today.replace(year=today.year+1, month=1, day=1) - datetime.timedelta(days=1)
-                else:
-                    end_date = today.replace(month=today.month+2, day=1) - datetime.timedelta(days=1)
-            end_date = end_date.replace(hour=23, minute=59, second=59)
-        else:
-            # Try to parse "YYYY-MM-DD to YYYY-MM-DD" format
-            date_pattern = r"(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})"
-            match = re.search(date_pattern, date_range)
-            if match:
-                try:
-                    start_str, end_str = match.groups()
-                    start_date = datetime.datetime.strptime(start_str, "%Y-%m-%d")
-                    start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-                    end_date = datetime.datetime.strptime(end_str, "%Y-%m-%d")
-                    end_date = end_date.replace(hour=23, minute=59, second=59)
-                except (ValueError, TypeError):
-                    # If parsing fails, keep default values
-                    pass
-        
-        # Convert to Unix timestamps
-        start_timestamp = int(start_date.timestamp())
-        end_timestamp = int(end_date.timestamp())
-        
-        print(f"Searching for: '{enhanced_query}'")
-        print(f"Date range: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-    else:
-        print(f"Searching for: '{enhanced_query}' (no date filtering)")
-    
-    # Search Pinecone using hybrid search
-    search_results = search_data_in_pinecone_hybrid(
-        index_name, 
-        enhanced_query, 
-        k=k, 
-        alpha=alpha, 
-        use_enhanced_query=False  # Don't use enhanced query again as we've already done it
-    )
-    
-    # Filter results
-    filtered_results = []
-    for match in search_results.matches:
-        metadata = match.metadata
-        # Check if it's a deal/promo
-        if metadata.get("category") == "deal":
-            # Apply date filter if enabled
-            date_match = True
-            if start_timestamp is not None and end_timestamp is not None:
-                # Get date information
-                start_date_ts = metadata.get("start_date")
-                end_date_ts = metadata.get("end_date")
-                
-                # Check if the promo is active during selected date range
-                if start_date_ts and end_date_ts:
-                    date_match = int(start_date_ts) <= end_timestamp and int(end_date_ts) >= start_timestamp
-            
-            # Apply location filter if provided
-            location_match = True
-            if location:
-                promo_location = metadata.get("location", "").lower()
-                location_match = location.lower() in promo_location
-            
-            if date_match and location_match:
-                filtered_results.append({
-                    "score": match.score,
-                    "id": match.id,
-                    "summary": metadata.get("summary", ""),
-                    "location": metadata.get("location", ""),
-                    "event_date": metadata.get("event_date", ""),
-                    "keywords": metadata.get("keywords", []),
-                    "chunk_text": metadata.get("chunk_text", "")
-                })
-    
-    if date_range is not None:
-        print(f"Found {len(filtered_results)} matching promos for the date range")
-    else:
-        print(f"Found {len(filtered_results)} matching promos")
-    
-    return filtered_results
 
 #------------------------------------------------------------------------------
 # Vector Storage Functions
@@ -948,17 +716,6 @@ async def store_embeddings_in_pinecone_hybrid(index_name: str, data: Dict[str, s
         print(f"Upserting {len(vectors)} hybrid vectors")
         index.upsert(vectors)
 
-#------------------------------------------------------------------------------
-# Backward Compatibility Functions
-#------------------------------------------------------------------------------
-
-async def store_embeddings_in_pinecone_chunkjson(index_name: str, data: Dict[str, str], model_name: str):
-    """Backward compatibility wrapper for store_embeddings_in_pinecone_hybrid."""
-    return await store_embeddings_in_pinecone_hybrid(index_name, data, model_name)
-
-async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[str, str], model_name: str):
-    """Backward compatibility wrapper for store_embeddings_in_pinecone_chunkjson_v2_hybrid."""
-    return await store_embeddings_in_pinecone_chunkjson_v2_hybrid(index_name, data, model_name)
 
 def determine_query(query: str, use_v2: bool = False):
     """
@@ -971,6 +728,7 @@ def determine_query(query: str, use_v2: bool = False):
     Returns:
         Dictionary with query analysis including:
         - is_event_deal_query: Whether query is about events/deals
+        - needs_time_range: Whether the query requires time filtering (only with V2)
         - start_date: Unix timestamp for start date (or 0 if not applicable)
         - end_date: Unix timestamp for end date (or 0 if not applicable)
         - keywords: List of relevant keywords (only if use_v2=True)
@@ -982,7 +740,90 @@ def determine_query(query: str, use_v2: bool = False):
     
     query_response = query_formatter(query, prompt)
     print(f"Query response {query_response}")
-    query_response = json.loads(query_response)
+    
+    try:
+        query_response = json.loads(query_response)
+        
+        # Validate and correct timestamps if needed (only for time-sensitive queries)
+        if use_v2:
+            needs_time_range = query_response.get("needs_time_range", False)
+            is_event_deal_query = query_response.get("is_event_deal_query", False)
+            
+            # If query needs time range, validate the timestamps
+            if needs_time_range and is_event_deal_query:
+                # Get current date information
+                today = datetime.datetime.now()
+                current_year = today.year
+                today_timestamp = int(today.timestamp())
+                end_of_year = datetime.datetime(current_year, 12, 31, 23, 59, 59)
+                end_of_year_timestamp = int(end_of_year.timestamp())
+                
+                # Get and validate timestamps
+                start_date = query_response.get("start_date", 0)
+                end_date = query_response.get("end_date", 0)
+                
+                # Validate start date (check if it's valid and from current year)
+                if start_date <= 0 or (start_date > 0 and datetime.datetime.fromtimestamp(start_date).year < current_year):
+                    print(f"WARNING: Invalid or past year start date detected: {start_date}")
+                    start_date = today_timestamp
+                    print(f"Corrected start_date to today: {start_date} ({datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d')})")
+                    query_response["start_date"] = start_date
+                
+                # Validate end date (check if it's valid and from current year)
+                if end_date <= 0 or (end_date > 0 and datetime.datetime.fromtimestamp(end_date).year < current_year):
+                    print(f"WARNING: Invalid or past year end date detected: {end_date}")
+                    end_date = end_of_year_timestamp
+                    print(f"Corrected end_date to end of year: {end_date} ({datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d')})")
+                    query_response["end_date"] = end_date
+            # For queries that don't need time range, ensure timestamps are 0
+            elif not needs_time_range:
+                query_response["start_date"] = 0
+                query_response["end_date"] = 0
+        else:
+            # Handle original prompt (maintain backward compatibility)
+            is_event_deal_query = query_response.get("is_event_deal_query", False)
+            start_date = query_response.get("start_date", 0)
+            end_date = query_response.get("end_date", 0)
+            
+            # Validate timestamps for event/deal queries
+            if is_event_deal_query:
+                # Get current date information
+                today = datetime.datetime.now()
+                current_year = today.year
+                today_timestamp = int(today.timestamp())
+                end_of_year = datetime.datetime(current_year, 12, 31, 23, 59, 59)
+                end_of_year_timestamp = int(end_of_year.timestamp())
+                
+                # Validate start date
+                if start_date <= 0 or (start_date > 0 and datetime.datetime.fromtimestamp(start_date).year < current_year):
+                    print(f"WARNING: Invalid or past year start date detected: {start_date}")
+                    start_date = today_timestamp
+                    print(f"Corrected start_date to today: {start_date} ({datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d')})")
+                    query_response["start_date"] = start_date
+                
+                # Validate end date
+                if end_date <= 0 or (end_date > 0 and datetime.datetime.fromtimestamp(end_date).year < current_year):
+                    print(f"WARNING: Invalid or past year end date detected: {end_date}")
+                    end_date = end_of_year_timestamp
+                    print(f"Corrected end_date to end of year: {end_date} ({datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d')})")
+                    query_response["end_date"] = end_date
+    except json.JSONDecodeError as e:
+        print(f"Error parsing query response: {e}")
+        # Return default response
+        if use_v2:
+            query_response = {
+                "is_event_deal_query": False,
+                "needs_time_range": False,
+                "start_date": 0,
+                "end_date": 0,
+                "keywords": []
+            }
+        else:
+            query_response = {
+                "is_event_deal_query": False,
+                "start_date": 0,
+                "end_date": 0
+            }
     
     end_time = datetime.datetime.now()
     print(f"Time taken for determining query type: {end_time - start_time} seconds")
@@ -1012,15 +853,17 @@ def search_with_enhanced_query(index_name: str, user_query: str, k: int = 20):
     analysis = determine_query(user_query, use_v2=True)
     
     is_event_deal_query = analysis.get("is_event_deal_query", False)
+    needs_time_range = analysis.get("needs_time_range", False)
     keywords = analysis.get("keywords", [])
     start_date = analysis.get("start_date", 0)
     end_date = analysis.get("end_date", 0)
     
     print(f"\nQuery Analysis:")
     print(f"- Is event/deal query: {is_event_deal_query}")
+    print(f"- Needs time range: {needs_time_range}")
     if keywords:
         print(f"- Generated keywords: {', '.join(keywords[:5])}...")
-    if is_event_deal_query and start_date > 0 and end_date > 0:
+    if needs_time_range and start_date > 0 and end_date > 0:
         start_date_str = datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d')
         end_date_str = datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d')
         print(f"- Date range: {start_date_str} to {end_date_str}")
