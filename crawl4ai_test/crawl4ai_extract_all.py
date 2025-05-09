@@ -8,7 +8,7 @@ from crawl4ai import AsyncWebCrawler, CrawlerRunConfig, CacheMode, LXMLWebScrapi
 from urllib.parse import urljoin, urlparse, urlunparse
 from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
-from db.pinecone_db import store_embeddings_in_pinecone, search_pinecone
+from crawl4ai_content_extractor import ContentExtractor
 from db.db import get_last_modified_from_db, update_last_modified_in_db
 import aiohttp
 import logging
@@ -207,29 +207,81 @@ class WebScraper:
                     os.makedirs(file_dir)
                 with open(file_path, 'w') as file:
                     file.write(f"# {url}\n\n")
-                    file.write(f"Last Modified: {self.last_modified_data[url]['last_modified']}\n\n")
+                    if url in self.last_modified_data and self.last_modified_data[url] is not None:
+                        if isinstance(self.last_modified_data[url], dict):
+                            file.write(f"Last Modified: {self.last_modified_data[url]['last_modified']}\n\n")
+                            # Add __NEXT_DATA__ content if available
+                            if '__NEXT_DATA__' in self.last_modified_data[url]:
+                                file.write(f"\n\n## __NEXT_DATA__\n\n")
+                                file.write(self.last_modified_data[url]['__NEXT_DATA__'])
+                        else:
+                            file.write(f"Last Modified: {self.last_modified_data[url]}\n\n")
+                    else:
+                        file.write("Last Modified: Not available\n\n")
                     file.write(f"## Content\n\n")
                     markdown_content = result.markdown_v2.fit_markdown or "No content available."
                     file.write(markdown_content)
                     file.write(f"\n\n## Images\n")
                     for img in result.media.get('images', []):
                         file.write(f"- Image URL: {img['src']}, Alt: {img['alt']}\n")
-                    # Add __NEXT_DATA__ content if available
-                    if '__NEXT_DATA__' in self.last_modified_data[url]:
-                        file.write(f"\n\n## __NEXT_DATA__\n\n")
-                        file.write(self.last_modified_data[url]['__NEXT_DATA__'])
                     markdown_data[url] = markdown_content
         
         # Store the markdown content as embeddings in Pinecone
-        store_embeddings_in_pinecone(folder_name, markdown_data, chunk_size=100)
+        # store_embeddings_in_pinecone(folder_name, markdown_data, chunk_size=100)
 
-async def main(start_url: str, depth: int):
+async def main(start_url: str, depth: int, type: str):
     async with AsyncWebCrawler() as crawler:
         scraper = WebScraper(crawler)
         results = await scraper.scrape(start_url, depth)
-        
+
         folder_name = urlparse(start_url).netloc.replace('.', '-').lower()
         scraper.save_results_to_markdown(results, folder_name)
+
+        for url, result in results.items():
+            # print(f"URL: {url}")
+            # print(f"Result: {result.markdown_v2.fit_markdown}")
+
+            # DO HERE
+            # Initialize the ContentExtractor
+            extractor = ContentExtractor(
+                model_name=os.getenv("OPENAI_MODEL_NAME"),
+                api_key=os.getenv("OPENAI_API_KEY"),
+                base_url=os.getenv("OPENAI_BASE_URL")
+            )
+
+            response_json = ""
+
+            if type == "service":
+                print("================================================")
+                service_response = await extractor.extract_services(result.markdown_v2.fit_markdown)
+                print(f"Service extraction response: {service_response}")
+                response_json = service_response
+            elif type == "content":
+                print("================================================")
+                content_response = await extractor.extract_content(result.markdown_v2.fit_markdown)
+                print(f"Content extraction response: {content_response}")
+                response_json = content_response
+                
+            # Save service response to JSON file
+            parsed_url = urlparse(url)
+            path = parsed_url.path.strip('/')
+            if not path:
+                path = 'index'
+            json_file_path = os.path.join(folder_name, f"{path}_{type}.json")
+            json_file_dir = os.path.dirname(json_file_path)
+            print(f"Saving JSON to: {json_file_path}")
+            if not os.path.exists(json_file_dir):
+                os.makedirs(json_file_dir)
+            try:
+                # Parse the response if it's a string
+                if isinstance(response_json, str):
+                    response_json = json.loads(response_json)
+                
+                with open(json_file_path, 'w') as json_file:
+                    json.dump(response_json, json_file, indent=2)
+                print(f"Successfully saved JSON to {json_file_path}")
+            except Exception as e:
+                print(f"Error saving JSON file: {str(e)}")
 
     number_of_crawled_pages = 0
     for url, result in results.items():
@@ -240,10 +292,21 @@ async def main(start_url: str, depth: int):
     
 
 if __name__ == "__main__":
+    depth = 0
+
     # start_url = "http://www.ditekjaya.co.id"
-    start_url = "https://i12katong.com.sg"
-    depth = 10
-    asyncio.run(main(start_url, depth)) 
+    # start_url = "https://i12katong.com.sg"
+
+
+    # Total tokens used: 11026
+    # Total time taken: 88313.026 ms
+    start_url = "https://www.underarmour.com.sg/en-sg/t/faqs.html"
+    asyncio.run(main(start_url, depth, "content")) 
+
+    # Total tokens used: 3689
+    # Total time taken: 18125.217 ms
+    start_url = "https://www.nakamura.co.id/read/service-kami"
+    asyncio.run(main(start_url, depth, "service")) 
 
     # folder_name = "www-ditekjaya-co-id"
     # # Example search query

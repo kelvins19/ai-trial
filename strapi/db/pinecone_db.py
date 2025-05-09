@@ -9,14 +9,13 @@ from langchain.text_splitter import MarkdownTextSplitter, RecursiveJsonSplitter,
 from .db import upsert_docstore_in_db
 import json
 from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
-from constants import STRAPI_KEYWORD_GENERATOR_PROMPT_1, STRAPI_SUMMARY_GENERATOR_PROMPT, STRAPI_SUMMARY_AND_DATE_GENERATOR_PROMPT, STRAPI_QUERY_DETECTOR_PROMPT, STRAPI_QUERY_DETECTOR_PROMPT_V2
+from constants import STRAPI_KEYWORD_GENERATOR_PROMPT_1, STRAPI_SUMMARY_GENERATOR_PROMPT, STRAPI_SUMMARY_AND_DATE_GENERATOR_PROMPT
 from strapi_keyword_summary_generator import query_formatter
 import datetime
 from utils.parser import parse_event_dates
 
 load_dotenv()
 api_key = os.getenv("PINECONE_API_KEY")
-print(f"Pinecone Api key {api_key}")
 model_name = os.getenv("EMBEDDING_MODEL_NAME", "sentence-transformers/all-mpnet-base-v2")
 embed_access_key = "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"
 
@@ -99,33 +98,6 @@ def search_data_in_pinecone_sparse(index_name: str, query: str, k: int =20):
     end_time = datetime.datetime.now()
     print(f"Time taken for convert to vector: {end_time - start_time} seconds")
 
-    determined_query = determine_query(query, True)
-    print(f"Determined query: {determined_query}")
-    
-    # Get date filters if it's an event/deal query
-    keywords = determined_query.get("keywords", [])
-    is_event_deal_query = determined_query.get("is_event_deal_query", False)
-    start_date = determined_query.get("start_date", 0)
-    end_date = determined_query.get("end_date", 0)
-    
-    # Prepare Pinecone filter if we have date criteria
-    filter_dict = {
-            "$and": [
-                {"keywords": {"$in": keywords}}
-            ]
-        }
-    if is_event_deal_query and start_date > 0 and end_date > 0:
-        print(f"Filtering results by date range: {datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d')} to {datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d')}")
-        filter_dict = {
-            "$and": [
-                {"keywords": {"$in": keywords}},
-                {"category": {"$in": ["deal", "event"]}},
-                {"start_date": {"$lte": end_date}},
-                {"end_date": {"$gte": start_date}}
-            ]
-        }
-        print(f"Using filter: {filter_dict}")
-
     start_time = datetime.datetime.now()
     index = pc.Index(index_name)
     retrieved_docs = index.query(
@@ -136,13 +108,11 @@ def search_data_in_pinecone_sparse(index_name: str, query: str, k: int =20):
             },
             top_k=k,
             include_metadata=True,
-            include_values=False,
-            filter=filter_dict
+            include_values=False
         )
     
     end_time = datetime.datetime.now()
     print(f"Time taken for retrieval from pinecone: {end_time - start_time} seconds")
-    
     return retrieved_docs
 
 def search_data_in_pinecone(index_name: str, query: str, k: int = 20): 
@@ -157,6 +127,43 @@ def search_data_in_pinecone(index_name: str, query: str, k: int = 20):
         )
     
     return retrieved_docs
+
+def store_embeddings_in_pinecone(index_name: str, data: Dict[str, str], model_name: str):
+    print(f"Storing {model_name} embeddings in Pinecone index {index_name}")
+    dimension = 768
+    create_index_if_not_exists(index_name, dimension=dimension)
+    index = pc.Index(index_name)
+    vectors = []
+    max_metadata_size = 1024  
+
+    content = format_json_to_markdown(data['data'])
+    if len(content.encode('utf-8')) > max_metadata_size:
+        chunks = chunk_json_data(data['data'], max_metadata_size)
+    else:
+        chunks = [content]
+
+    for i, chunk in enumerate(chunks):
+        try:
+            if len(chunk.encode('utf-8')) > max_metadata_size:
+                print(f"Chunk size exceeds the limit: {len(chunk.encode('utf-8'))} bytes")
+                continue
+
+            embedding = model.embed_query(chunk)
+            embedding = [float(x) for x in embedding]
+
+            if len(embedding) != dimension:
+                print(f"Embedding dimension mismatch: expected {dimension}, got {len(embedding)}")
+                continue
+
+            doc_id = f"{model_name}_chunk_{i}"
+            vectors.append({"id": doc_id, "values": embedding, "metadata": {"doc_id": doc_id, "doc_type": "text", "filename": doc_id, "summary": chunk, "page_number": 1}})
+            # Upsert plaintext content to local DB
+            upsert_docstore_in_db(doc_id, chunk)
+        except Exception as e:
+            print(f"Error processing chunk {i}: {e}")
+
+    if vectors:
+        index.upsert(vectors)
 
 def escape_curly_brackets(text: str) -> str:
     return text.replace("{", "{{").replace("}", "}}")
@@ -274,7 +281,7 @@ async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[
                 sparse_values = embeddings.data[0]['sparse_values']
                 sparse_indices = embeddings.data[0]['sparse_indices']
 
-                doc_id = f"{model_name}_{item_id}_chunk_{i}_sparse_v2"
+                doc_id = f"{model_name}_{item_id}_chunk_{i}_json"
 
                 prompt = f"""
                 Category: {model_name}
@@ -294,50 +301,9 @@ async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[
                 summary_date_response = query_formatter(input, STRAPI_SUMMARY_AND_DATE_GENERATOR_PROMPT)
                 summary_date_response = json.loads(summary_date_response)
                 print(f"Summary Date Response {summary_date_response}")
-                
-                # Extract values from response
                 summary = summary_date_response.get("summary", "")
-                response_start_date = summary_date_response.get("start_date", event_dates["start_date"])
-                response_end_date = summary_date_response.get("end_date", event_dates["end_date"])
-                
-                # Validate the returned dates to ensure they're from the current year
-                today = datetime.datetime.now()
-                current_year = today.year
-                
-                # Create default timestamps
-                today_timestamp = int(today.timestamp())
-                end_of_year = datetime.datetime(current_year, 12, 31, 23, 59, 59)
-                end_of_year_timestamp = int(end_of_year.timestamp())
-                
-                # Validate start date - check if it's from a past year
-                if response_start_date > 0:
-                    try:
-                        start_date_dt = datetime.datetime.fromtimestamp(response_start_date)
-                        if start_date_dt.year < current_year:
-                            print(f"WARNING: Start date from past year detected: {response_start_date} ({start_date_dt.strftime('%Y-%m-%d')})")
-                            # Use event_dates start_date as fallback, which should be current
-                            response_start_date = event_dates["start_date"]
-                            print(f"Corrected start_date to: {response_start_date} ({datetime.datetime.fromtimestamp(response_start_date).strftime('%Y-%m-%d')})")
-                    except Exception as e:
-                        print(f"Error validating start date: {e}, using default")
-                        response_start_date = event_dates["start_date"]
-                
-                # Validate end date - check if it's from a past year
-                if response_end_date > 0:
-                    try:
-                        end_date_dt = datetime.datetime.fromtimestamp(response_end_date)
-                        if end_date_dt.year < current_year:
-                            print(f"WARNING: End date from past year detected: {response_end_date} ({end_date_dt.strftime('%Y-%m-%d')})")
-                            # Use event_dates end_date as fallback, which should be current
-                            response_end_date = event_dates["end_date"]
-                            print(f"Corrected end_date to: {response_end_date} ({datetime.datetime.fromtimestamp(response_end_date).strftime('%Y-%m-%d')})")
-                    except Exception as e:
-                        print(f"Error validating end date: {e}, using default")
-                        response_end_date = event_dates["end_date"]
-                
-                # Use the validated dates
-                start_date = response_start_date
-                end_date = response_end_date
+                start_date = summary_date_response.get("start_date", event_dates["start_date"])
+                end_date = summary_date_response.get("end_date", event_dates["end_date"])
 
                 metadata = {
                     "doc_id": doc_id, 
@@ -380,81 +346,3 @@ async def store_embeddings_in_pinecone_chunkjson_v2(index_name: str, data: Dict[
     if vectors:
         print(f"Upserting {len(vectors)} vectors")
         index.upsert(vectors)
-
-
-
-def determine_query(query: str, use_v2: bool = False):
-    """
-    Determine the intent of a user query and extract relevant date filters and keywords.
-    
-    Args:
-        query: User query text
-        use_v2: Whether to use the enhanced V2 prompt that also returns keywords
-        
-    Returns:
-        Dictionary with query analysis including:
-        - is_event_deal_query: Whether query is about events/deals
-        - start_date: Unix timestamp for start date (or 0 if not applicable)
-        - end_date: Unix timestamp for end date (or 0 if not applicable)
-        - keywords: List of relevant keywords (only if use_v2=True)
-    """
-    start_time = datetime.datetime.now()
-
-    # Choose which prompt to use
-    prompt = STRAPI_QUERY_DETECTOR_PROMPT_V2 if use_v2 else STRAPI_QUERY_DETECTOR_PROMPT
-    
-    query_response = query_formatter(query, prompt)
-    print(f"Query response {query_response}")
-    
-    try:
-        query_response = json.loads(query_response)
-        
-        # Validate and correct timestamps
-        # Get current date information
-        today = datetime.datetime.now()
-        current_year = today.year
-        today_timestamp = int(today.timestamp())
-        end_of_year = datetime.datetime(current_year, 12, 31, 23, 59, 59)
-        end_of_year_timestamp = int(end_of_year.timestamp())
-        
-        # Check if the query is about events/deals
-        is_event_deal_query = query_response.get("is_event_deal_query", False)
-        
-        # Get the existing timestamps
-        start_date = query_response.get("start_date", 0)
-        end_date = query_response.get("end_date", 0)
-        
-        # Validate timestamps for event/deal queries
-        if is_event_deal_query:
-            # If start date is suspicious (zero, negative, or from past year)
-            if start_date <= 0 or datetime.datetime.fromtimestamp(start_date).year < current_year:
-                print(f"WARNING: Invalid or past year start date detected: {start_date} ({datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d') if start_date > 0 else 'Invalid'})")
-                # Replace with today's timestamp
-                start_date = today_timestamp
-                print(f"Corrected start_date to today: {start_date} ({datetime.datetime.fromtimestamp(start_date).strftime('%Y-%m-%d')})")
-            
-            # If end date is suspicious (zero, negative, or from past year)
-            if end_date <= 0 or datetime.datetime.fromtimestamp(end_date).year < current_year:
-                print(f"WARNING: Invalid or past year end date detected: {end_date} ({datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d') if end_date > 0 else 'Invalid'})")
-                # Replace with end of current year timestamp
-                end_date = end_of_year_timestamp
-                print(f"Corrected end_date to end of year: {end_date} ({datetime.datetime.fromtimestamp(end_date).strftime('%Y-%m-%d')})")
-            
-            # Update the response with corrected timestamps
-            query_response["start_date"] = start_date
-            query_response["end_date"] = end_date
-            
-    except json.JSONDecodeError as e:
-        print(f"Error parsing query response: {e}")
-        # Return default response
-        query_response = {
-            "is_event_deal_query": False,
-            "start_date": 0,
-            "end_date": 0
-        }
-        if use_v2:
-            query_response["keywords"] = []
-
-    end_time = datetime.datetime.now()
-    print(f"Time taken for determining query type: {end_time - start_time} seconds")
-    return query_response

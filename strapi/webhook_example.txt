@@ -25,3 +25,49 @@
 
 1 Query to Pinecone with top_k = 20 (6 RU)
 Embeddings with model pinecone-sparse-english-v0 (10 tokens)
+
+{
+  "event": "entry.update",
+  "createdAt": "2025-03-21T02:44:48.761Z",
+  "model": "reward",
+  "uid": "api::reward.reward",
+  "entry": {
+    "id": 5,
+    "title": "$10 E-Vouchers",
+    "start_date": "2021-07-05",
+    "summary": "test",
+    "point": "10000",
+    "end_date": "2021-07-08",
+    "body": "<p>test</p>",
+    "youtube_url": "https://www.youtube.com/watch?v=EpqdCrRcevk",
+    "show_homepage": true,
+    "publishedAt": "2021-07-17T04:51:54.318Z",
+    "createdAt": "2021-07-17T04:51:46.611Z",
+    "updatedAt": "2025-03-21T02:44:48.657Z",
+    "time": "",
+    "location": "",
+    "hero_desktop": {
+      "id": 16,
+      "name": "transparent.png",
+      "alternativeText": "",
+      "caption": "",
+      "width": 1,
+      "height": 1,
+      "formats": "",
+      "hash": "transparent_e8afa93f6f",
+      "ext": ".png",
+      "mime": "image/png",
+      "size": 0.12,
+      "url": "https://i12.s3.ap-southeast-1.amazonaws.com/transparent_e8afa93f6f.png",
+      "previewUrl": "",
+      "provider": "aws-s3",
+      "provider_metadata": "",
+      "createdAt": "2024-01-25T05:01:54.377Z",
+      "updatedAt": "2025-03-21T02:44:36.201Z"
+    },
+    "hero_mobile": "",
+    "photos": "",
+    "strapi_stage": "",
+    "strapi_assignee": ""
+  }
+}

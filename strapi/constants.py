@@ -1,9 +1,9 @@
 BASE_URL = "https://cms.bistrobytes.com.sg/api"
 PATHS = {
     # "article": "/articles",
-    # "event": "/events",
-    "store": "/stores",
-    # "deal": "/deals",
+    "event": "/events",
+    # "store": "/stores",
+    "deal": "/deals",
     # "reward": "/rewards",
     # "config-contact-us": '/config-contact-us',
     # "config-about-us": '/config-about-us',
@@ -73,23 +73,12 @@ STRAPI_SUMMARY_GENERATOR_PROMPT = """You are an assistant tasked with identifyin
 STRAPI_DATE_GENERATOR_PROMPT = """
 You are an assistant tasked with identifying the start and end dates from an event date string. 
 Your task is to parse the given event date string and generate the start_date and end_date as Unix timestamps.
-
-IMPORTANT: Always use the CURRENT DATE to calculate Unix timestamps. Do not use dates from the examples.
-If the start_date cannot be detected from the text, use TODAY's current date (not a past date).
-If the end_date cannot be detected from the text, use the end of the CURRENT year.
-
-Follow these steps:
-1. Carefully extract date information from the event date string
-2. If explicit dates are mentioned (like "15 March 2025"), use those exact dates
-3. If no dates are mentioned or dates are unclear, use TODAY's date for start_date and end of CURRENT year for end_date
-4. Convert extracted dates to Unix timestamps using the current timezone
-
+If the start_date cannot be detected, use today's date. If the end_date cannot be detected, use the end of the year date.
 Return the output in JSON format as follows:
 {
-    "start_date": UNIX_TIMESTAMP_FOR_START_DATE,
-    "end_date": UNIX_TIMESTAMP_FOR_END_DATE
+    "start_date": UNIX,
+    "end_date": UNIX
 }
-
 Ensure the timestamps are accurate and represent the correct start and end dates of the event.
 Example Input: "17 Feb - 27 Mar 2025 (Monday-Thursday)"
 Example Output:
@@ -97,34 +86,19 @@ Example Output:
     "start_date": 1734566400,
     "end_date": 1740393600
 }
-
-NOTE: This example uses dates from 2025, but if you're parsing a date TODAY and don't find explicit dates, use TODAY's date.
-Always calculate Unix timestamps based on the CURRENT time, not the time from examples.
 """
 
 STRAPI_SUMMARY_AND_DATE_GENERATOR_PROMPT = """
 You are an assistant tasked with identifying contents from a given query. 
 Your task is to generate a summary of the given query in a human-readable format with a maximum of 500 characters, 
 and to parse the given event date string to generate the start_date and end_date as Unix timestamps.
-
-IMPORTANT: Always use the CURRENT DATE to calculate Unix timestamps. Do not use dates from the examples.
-If the start_date cannot be detected from the Event Date text, use TODAY's current date (not a past date).
-If the end_date cannot be detected from the Event Date text, use the end of the CURRENT year.
-
-Follow these steps:
-1. First, generate a concise summary of the Body content in 500 characters or less
-2. Second, carefully extract date information from the Event Date field
-3. If explicit dates are mentioned (like "15 March 2025"), use those exact dates
-4. If no dates are mentioned or dates are unclear, use TODAY's date for start_date and end of CURRENT year for end_date
-5. Convert extracted dates to Unix timestamps using the current timezone
-
+If the start_date cannot be detected, use today's date. If the end_date cannot be detected, use the end of the year date.
 Return the output in JSON format as follows:
 {{
     "summary": "SUMMARY",
-    "start_date": UNIX_TIMESTAMP_FOR_START_DATE,
-    "end_date": UNIX_TIMESTAMP_FOR_END_DATE
+    "start_date": UNIX,
+    "end_date": UNIX
 }}
-
 Ensure the timestamps are accurate and represent the correct start and end dates of the event.
 Example Input: 
 
@@ -137,97 +111,4 @@ Example Output:
     "start_date": 1734566400,
     "end_date": 1740393600
 }}
-
-NOTE: This example uses dates from 2025, but if you're parsing a query TODAY and don't find explicit dates, use TODAY's date.
-Always calculate Unix timestamps based on the CURRENT time, not the time from examples.
-"""
-
-STRAPI_QUERY_DETECTOR_PROMPT = """
-You are an assistant tasked with analyzing user queries to identify their intent and extract time-related information.
-Your task is to determine if a query is related to events or deals, and if so, generate appropriate start_date and end_date values as Unix timestamps.
-
-Follow these guidelines:
-
-1. For queries explicitly about events or activities or deals or promotions WITH time references:
-   - "current event this week" → start_date = beginning of current week, end_date = end of current week
-   - "any deal this thursday?" → start_date = this Thursday's date, end_date = Friday (1 day after)
-   - "events next month" → start_date = first day of next month, end_date = last day of next month
-   - "deals for weekend" → start_date = upcoming Friday, end_date = upcoming Sunday
-
-2. For queries about events or activities or deals or promotions WITHOUT specific time references:
-   - "any deals?" or "what are the deals?" → start_date = today's date, end_date = 7 days after today
-   - "show me events" → start_date = today's date, end_date = 30 days after today
-
-3. For NON-event or deal queries (information, location, amenities, etc.):
-   - "where is watsons located?" → start_date = 0, end_date = 0
-   - "what is rewards+?" → start_date = 0, end_date = 0
-   - "any ev charging here?" → start_date = 0, end_date = 0
-   - "where is the mall located?" → start_date = 0, end_date = 0
-
-IMPORTANT: Always use the ACTUAL CURRENT DATE to calculate Unix timestamps. This means:
-- If today's date is June 15, 2024, use that as your reference point
-- DO NOT use dates from previous years or hardcoded dates
-- Calculate "this week", "next month", etc. relative to TODAY's date
-- Always convert to Unix timestamps using the current timezone
-
-First, determine if the query is about events/deals or not. Then, extract any time references.
-If it's about events/deals but no time is specified, use the default ranges.
-If it's not about events/deals, return zeros for both timestamps.
-
-Return the output in valid JSON format (do not return the comment part) as follows:
-{{
-    "is_event_deal_query": true/false,
-    "start_date": UNIX_TIMESTAMP,
-    "end_date": UNIX_TIMESTAMP
-}}
-
-Example 1:
-Input: "current event this week"
-Output:
-{{
-    "is_event_deal_query": true,
-    "start_date": 1715644800, 
-    "end_date": 1716249599   
-}}
-
-Example 2:
-Input: "where is watsons located?"
-Output:
-{{
-    "is_event_deal_query": false,
-    "start_date": 0,
-    "end_date": 0
-}}
-
-Example 3:
-Input: "any deals?"
-Output:
-{{
-    "is_event_deal_query": true,
-    "start_date": 1715817600,  
-    "end_date": 1716422399     
-}}
-
-CRITICAL: The timestamp values in these examples are just for illustration. You MUST calculate timestamps based on TODAY's actual date, not the dates used in these examples.
-Use today's date to calculate all time references.
-Make sure all timestamp calculations are accurate, accounting for month boundaries, leap years, etc.
-For date ranges like "this week", use Monday as the start and Sunday as the end.
-For specific days like "this Thursday", ensure you're calculating the correct date for the upcoming Thursday.
-"""
-
-STRAPI_QUERY_DETECTOR_PROMPT_V2 = """
-Parse query: Return ONLY this JSON - no text, no code blocks, no explanations:
-{{"is_event_deal_query":BOOL,"needs_time_range":BOOL,"start_date":INT,"end_date":INT,"keywords":["k1","k2","k3","k4","k5"]}}
-
-Rules:
-1. is_event_deal_query: True if about events/deals/promotions, else False
-2. needs_time_range: Always True when is_event_deal_query is True; Always False otherwise
-3. start_date: For event/deal queries, use unix timestamp (now for today, etc); For non-event queries, use 0
-4. end_date: For event/deal queries, calculate end timestamp; For non-event queries, use 0
-5. keywords: 5 most relevant search terms only and in lowercase only
-
-Example mapping:
-"deals this week" → {{"is_event_deal_query":true,"needs_time_range":true,timestamps...}}
-"any deals" → {{"is_event_deal_query":true,"needs_time_range":true,timestamps...}}
-"store hours" → {{"is_event_deal_query":false,"needs_time_range":false,"start_date":0,"end_date":0,...}}
 """
