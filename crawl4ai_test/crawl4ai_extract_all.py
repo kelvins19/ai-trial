@@ -240,7 +240,7 @@ async def main(start_url: str, depth: int, type: str):
         for url, result in results.items():
             # print(f"URL: {url}")
             # print(f"Result: {result.markdown_v2.fit_markdown}")
-
+# 
             # DO HERE
             # Initialize the ContentExtractor
             extractor = ContentExtractor(
@@ -252,14 +252,14 @@ async def main(start_url: str, depth: int, type: str):
             response_json = ""
 
             if type == "service":
-                print("================================================")
+                # print("================================================")
                 service_response = await extractor.extract_services(result.markdown_v2.fit_markdown)
-                print(f"Service extraction response: {service_response}")
+                # print(f"Service extraction response: {service_response}")
                 response_json = service_response
             elif type == "content":
-                print("================================================")
+                # print("================================================")
                 content_response = await extractor.extract_content(result.markdown_v2.fit_markdown)
-                print(f"Content extraction response: {content_response}")
+                # print(f"Content extraction response: {content_response}")
                 response_json = content_response
                 
             # Save service response to JSON file
@@ -298,13 +298,13 @@ if __name__ == "__main__":
     # start_url = "https://i12katong.com.sg"
 
 
-    # Total tokens used: 11026
-    # Total time taken: 88313.026 ms
+    # Total tokens used: 11026 (GPT 4o Mini), 13741 (Gemini 1.5 Flash), 14009 (Gemini 2.0 Flash)
+    # Total time taken: 88313.026 ms (GPT 4o Mini), 46035.903 ms (Gemini 1.5 Flash), 35600.487 ms (Gemini 2.0 Flash)
     start_url = "https://www.underarmour.com.sg/en-sg/t/faqs.html"
     asyncio.run(main(start_url, depth, "content")) 
 
-    # Total tokens used: 3689
-    # Total time taken: 18125.217 ms
+    # Total tokens used: 3689 (GPT 4o Mini), 3957 (Gemini 1.5 Flash), 4419 (Gemini 2.0 Flash)
+    # Total time taken: 18125.217 ms (GPT 4o Mini), 14718.888 ms (Gemini 1.5 Flash), 13140.764 ms (Gemini 2.0 Flash)
     start_url = "https://www.nakamura.co.id/read/service-kami"
     asyncio.run(main(start_url, depth, "service")) 
 

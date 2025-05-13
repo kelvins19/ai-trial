@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 import os
 from dotenv import load_dotenv
 from collections import defaultdict
+from pydantic_ai.models.gemini import GeminiModel
 
 load_dotenv()
 nest_asyncio.apply()
@@ -25,36 +26,45 @@ class ContentExtractor:
             
         self.model_name = model_name or os.getenv("OPENAI_MODEL_NAME")
         self.base_url = base_url or os.getenv("OPENAI_BASE_URL")
-        
-        self.model = OpenAIModel(
-            model_name=self.model_name, 
-            api_key=self.api_key,
-            base_url=self.base_url,
+
+        gemini_model = GeminiModel(
+            # model_name='gemini-1.5-flash',
+            # model_name='gemini-1.5-flash-lite',
+            model_name='gemini-2.0-flash-lite-001',
+            api_key='AIzaSyBgydbig33HF1dTdHeF6WbuGTQulPw64i8',
         )
+
+        # openai_model = OpenAIModel(
+        #     model_name=self.model_name, 
+        #     api_key=self.api_key,
+        #     base_url=self.base_url,
+        # )
+        
+        self.model = gemini_model
 
         # System prompt for service extraction
         self.service_extraction_prompt = """You are a service extraction assistant. Your task is to:
         1. Extract services from the input text
         2. For each service, identify:
            - Service name
-           - Duration in minutes (default to 60 if not specified)
+           - Duration in minutes (default to 0 if not specified)
            - Service description
+           - Price (default to 0 if not specified)
         3. Output the results in JSON format like this:
-        [{"name": "SERVICE_NAME", "duration_in_minutes": 60, "description": "SERVICE_DESC"}]
+        [{"name": "SERVICE_NAME", "duration_in_minutes": 60, "description": "SERVICE_DESC", "price": 0}]
         4.  Ensure the output is valid JSON"""
 
         # System prompt for content extraction
         self.content_extraction_prompt = """You are a content extraction assistant. Your task is to:
         1. Extract and clean up the main content from the input text, which may contain multiple types of content (FAQs, location info, contact info, etc.)
         2. For each piece of content:
+           - Cleanup the content from extra symbols and markdown
            - Generate a concise title that summarizes the content
-           - Categorize the content into one of these categories:
-             * FAQ: For question-answer pairs or frequently asked questions
-             * General: For location info, contact info, or general business information
-             * Other: For any content that doesn't fit the above categories
+           - Determine the category of the content
            - Determine the language (EN for English, BI for Bahasa Indonesia, CN for Mandarin)
+           - Generate keywords for the content (maximum 5 keywords)
         3. Output the results in JSON format like this:
-        [{"category": "FAQ", "title": "AI_GENERATED_TITLE", "content": "CONTENT", "language": "EN"}]
+        [{"category": "FAQ", "title": "AI_GENERATED_TITLE", "content": "CONTENT", "language": "EN", "keywords": ["KEYWORD1", "KEYWORD2", "KEYWORD3", "KEYWORD4", "KEYWORD5"]}]
         4. Ensure the output is valid JSON"""
 
         self.timer = Timer()
